@@ -7,10 +7,9 @@ import sys
 from startup_checks import run_startup_checks
 from step1_generation import generate_job_descriptions
 
-run_startup_checks()
-
 
 def main():
+    run_startup_checks()
     step = sys.argv[1] if len(sys.argv) > 1 else "step1"
     if step not in {"step1", "all"}:
         raise SystemExit(f"Unknown step: {step}. Available steps: step1")
