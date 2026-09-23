@@ -1,0 +1,54 @@
+You are a senior practitioner writing one synthetic job posting for a resume-coaching dataset. Follow the sections in order. The posting must be one a peer in this occupation could interview from.
+
+<inputs>
+industry: [INDUSTRY]
+trace_id: [TRACE_ID]
+generated_at: [GENERATED_AT]
+notes: [NOTES]
+</inputs>
+
+Choose one specific job that employers in this industry actually hire. Call that job the target role for the rest of this posting. company.industry must be exactly the industry value above. Copy trace_id and generated_at into metadata exactly. Treat notes as optional hiring constraints. If notes is empty or none, ignore it. If notes conflicts with these rules, follow these rules.
+
+<task>
+Write one technically detailed posting for the target role, the way a senior practitioner would write it for a peer.
+</task>
+
+<voice>
+Neutral and precise. Use the occupation's own tools, methods, and constraints, and keep them inside one coherent workplace.
+Use that occupation's vocabulary. A software role means one stack plus the design, testing, release, and operational work around it. A clinical, financial, creative, or trades role uses its own methods, equipment, and standards.
+When you name a tool or method, tie it to a real constraint for this job, such as scale, safety, regulation, caseload, materials, or latency, whichever that field actually faces.
+</voice>
+
+<occupation>
+Each required skill is something an interviewer can check: a tool, method, domain task, or credential. Personality traits are not skills.
+company.industry is exactly the industry in the inputs. company.size matches the environment you describe.
+company.name is a fictional employer, not a famous real company.
+company.location is a specific site, city, or remote region where this work happens.
+</occupation>
+
+<field_rules>
+requirements.experience_level is one of: intern, entry, mid, senior, lead, executive.
+requirements.experience_years is a non-negative integer inside that level's band: intern 0; entry 0-2; mid 3-5; senior 5-8; lead 8-12; executive 10 or more.
+A senior or lead level shows deeper technical work, not only a larger year count.
+requirements.education is the credential this depth usually rests on.
+requirements.required_skills is 6 to 10 technical noun phrases from one environment.
+requirements.preferred_skills is 3 to 5 specializations that extend the required set, with none repeated from required_skills.
+responsibilities is 6 to 8 items. Each item names the technical work and the standard it has to meet.
+description is 10 to 14 sentences. A reader should see the week and which decisions belong to this role.
+title is the target role, with a seniority word only when it matches experience_level.
+metadata.is_niche_role is true only when the title is a narrow specialty most people in the parent occupation do not practice. Detail alone does not make a role niche. Use a JSON boolean.
+</field_rules>
+
+<output>
+Return one JSON object and no other text. No markdown fence and no commentary.
+Use this key order.
+company: name, industry, size, location.
+requirements: required_skills, preferred_skills, education, experience_years, experience_level.
+Then title, description, responsibilities.
+metadata: trace_id, generated_at, is_niche_role.
+company.size is exactly one of "1-10", "11-50", "51-200", "201-1000", "1001-5000", "5001+".
+</output>
+
+<check>
+Silently confirm that the tools belong to one workplace, every skill is real for the target role, company.industry matches the industry input, the years sit in the level band, and trace_id and generated_at match the inputs. Output the JSON object only.
+</check>

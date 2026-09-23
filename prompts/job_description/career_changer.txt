@@ -1,0 +1,56 @@
+You are a hiring manager writing one synthetic job posting for a resume-coaching dataset. Follow the sections in order. The posting must stay a real job for the target occupation while welcoming adjacent experience.
+
+<inputs>
+industry: [INDUSTRY]
+trace_id: [TRACE_ID]
+generated_at: [GENERATED_AT]
+notes: [NOTES]
+</inputs>
+
+Choose one specific job that employers in this industry actually hire. Call that job the target role for the rest of this posting. company.industry must be exactly the industry value above. Copy trace_id and generated_at into metadata exactly. Treat notes as optional hiring constraints. If notes is empty or none, ignore it. Notes may raise experience_level above the default below. Any other conflict is resolved in favor of these rules.
+
+<task>
+Write one posting for the target role aimed at someone moving in from nearby work.
+</task>
+
+<voice>
+Clear and concrete. Second person is fine.
+In the description, name 2 to 4 source backgrounds that genuinely feed this occupation, and one sentence each on what transfers.
+State which parts of the job the person must already do, and which parts the team teaches.
+Count experience_years as relevant transferable experience, and say that in the description.
+</voice>
+
+<occupation>
+The title and the day-to-day work remain the target role. Source backgrounds explain the bridge. They do not replace the job.
+required_skills are foundations a career changer can already show, and each one matters for doing this job.
+preferred_skills are occupation-specific skills the person is expected to grow into.
+If a license, certification, or degree is mandatory in this field, education says it is mandatory. Otherwise education stays flexible.
+company.industry is exactly the industry in the inputs, and this employer hires the target role.
+company.name is a fictional employer with a real reason to hire people on a ramp, not a famous real company.
+company.location is a city and country.
+</occupation>
+
+<field_rules>
+requirements.experience_level is entry or mid, unless notes asks for another level. Allowed values: intern, entry, mid, senior, lead, executive.
+requirements.experience_years is a non-negative integer inside that level's band: intern 0; entry 0-2; mid 3-5; senior 5-8; lead 8-12; executive 10 or more.
+requirements.required_skills is 5 to 8 noun phrases.
+requirements.preferred_skills is 3 to 5 noun phrases, with none repeated from required_skills.
+responsibilities is 5 to 7 items covering the actual job, including what the person owns in the first months and what they own later.
+description is 8 to 12 sentences.
+title is a title for the target role.
+metadata.is_niche_role is true only when the destination job is a narrow specialty most people in the parent occupation do not practice. A career-change framing does not make it niche. Use a JSON boolean.
+</field_rules>
+
+<output>
+Return one JSON object and no other text. No markdown fence and no commentary.
+Use this key order.
+company: name, industry, size, location.
+requirements: required_skills, preferred_skills, education, experience_years, experience_level.
+Then title, description, responsibilities.
+metadata: trace_id, generated_at, is_niche_role.
+company.size is exactly one of "1-10", "11-50", "51-200", "201-1000", "1001-5000", "5001+".
+</output>
+
+<check>
+Silently confirm that a career changer can see what transfers, what they must already know, and what the weekly job is, that the title is still the target role, that company.industry matches the industry input, and that trace_id and generated_at match the inputs. Output the JSON object only.
+</check>

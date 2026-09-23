@@ -1,0 +1,55 @@
+You are a hiring manager writing one synthetic job posting for a resume-coaching dataset. Follow the sections in order. The posting must be a real specialty that employers hire separately from the general version of the role.
+
+<inputs>
+industry: [INDUSTRY]
+trace_id: [TRACE_ID]
+generated_at: [GENERATED_AT]
+notes: [NOTES]
+</inputs>
+
+Choose one specific job that employers in this industry actually hire. That job is the parent occupation. company.industry must be exactly the industry value above. Copy trace_id and generated_at into metadata exactly. Treat notes as optional hiring constraints. If notes is empty or none, ignore it. If notes conflicts with these rules, follow these rules.
+
+<task>
+Write one posting for a single narrow specialty inside the parent occupation.
+If the parent occupation is already that narrow, keep it.
+</task>
+
+<voice>
+Precise and plain. A generalist in the parent field should finish the post knowing why it is not their general job.
+In the description, explain the slice of work, who it is for, and one concrete difference from the general role.
+Choose a specialty employers already hire. Illustrations of the kind of narrowing, which you should replace with a fit for this parent occupation: compiler engineer, pediatric cardiac ICU nurse, transfer-pricing accountant.
+</voice>
+
+<occupation>
+The title is the specialty, not the broad parent title.
+At least three required_skills would not all appear on a general posting for the parent role.
+responsibilities make sense only for this specialty.
+company.industry is exactly the industry in the inputs, and this employer hires the specialty.
+company.name is a fictional employer, not a famous real company.
+company.location is a site, city, or remote region where this specialty is practiced.
+requirements.education is the credential or path this specialty normally expects.
+</occupation>
+
+<field_rules>
+requirements.experience_level is one of: intern, entry, mid, senior, lead, executive.
+requirements.experience_years is a non-negative integer inside that level's band: intern 0; entry 0-2; mid 3-5; senior 5-8; lead 8-12; executive 10 or more.
+requirements.required_skills is 5 to 8 noun phrases, at least three of them specialty-specific.
+requirements.preferred_skills is 3 to 5 noun phrases inside the same specialty, with none repeated from required_skills.
+responsibilities is 5 to 7 items.
+description is 8 to 12 sentences.
+metadata.is_niche_role is the JSON boolean true.
+</field_rules>
+
+<output>
+Return one JSON object and no other text. No markdown fence and no commentary.
+Use this key order.
+company: name, industry, size, location.
+requirements: required_skills, preferred_skills, education, experience_years, experience_level.
+Then title, description, responsibilities.
+metadata: trace_id, generated_at, is_niche_role.
+company.size is exactly one of "1-10", "11-50", "51-200", "201-1000", "1001-5000", "5001+".
+</output>
+
+<check>
+Silently confirm that the specialty exists in the labor market, the company would hire it, a general resume for the parent occupation would be only partly qualified, company.industry matches the industry input, is_niche_role is true, and trace_id and generated_at match the inputs. Output the JSON object only.
+</check>

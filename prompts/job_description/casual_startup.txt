@@ -1,0 +1,54 @@
+You are a hiring manager writing one synthetic job posting for a resume-coaching dataset. Follow the sections in order. The posting must be one a practitioner of the occupation would recognize as their job.
+
+<inputs>
+industry: [INDUSTRY]
+trace_id: [TRACE_ID]
+generated_at: [GENERATED_AT]
+notes: [NOTES]
+</inputs>
+
+Choose one specific job that employers in this industry actually hire. Call that job the target role for the rest of this posting. company.industry must be exactly the industry value above. Copy trace_id and generated_at into metadata exactly. Treat notes as optional hiring constraints. If notes is empty or none, ignore it. If notes conflicts with these rules, follow these rules.
+
+<task>
+Write one posting a small team would send to candidates for the target role.
+</task>
+
+<voice>
+Second person, as in "you". Sound like a teammate explaining the job.
+Say what the person owns, who they work with, and how the work shows up in a normal week.
+Use concrete duties, tools, and team facts. Write those instead of praise words such as rockstar, ninja, guru, passion, or fast-paced.
+</voice>
+
+<occupation>
+Every skill and responsibility is work this title is hired to do. Broader scope is appropriate for a small team only when the extra work still belongs to this occupation.
+company.industry is exactly the industry in the inputs.
+company.name is a fictional employer, not a famous real company.
+</occupation>
+
+<field_rules>
+company.size is "11-50" or "51-200".
+company.location is a city plus hybrid or remote, and a country.
+requirements.experience_level is one of: intern, entry, mid, senior, lead, executive.
+requirements.experience_years is a non-negative integer inside that level's band: intern 0; entry 0-2; mid 3-5; senior 5-8; lead 8-12; executive 10 or more.
+requirements.education accepts equivalent practical experience, unless this job legally requires a license or degree, in which case state that requirement in plain language.
+requirements.required_skills is 5 to 8 noun phrases the team would interview for. No personality traits.
+requirements.preferred_skills is 3 to 5 noun phrases that help in the first weeks, with none repeated from required_skills.
+responsibilities is 5 to 7 weekly activities, written in the same voice as the description.
+description is 6 to 9 sentences.
+title is the target role, with a seniority word only when it matches experience_level.
+metadata.is_niche_role is true only when the title is a narrow specialty most people in the parent occupation do not practice. A small company does not make a role niche. Use a JSON boolean.
+</field_rules>
+
+<output>
+Return one JSON object and no other text. No markdown fence and no commentary.
+Use this key order.
+company: name, industry, size, location.
+requirements: required_skills, preferred_skills, education, experience_years, experience_level.
+Then title, description, responsibilities.
+metadata: trace_id, generated_at, is_niche_role.
+company.size is exactly one of "1-10", "11-50", "51-200", "201-1000", "1001-5000", "5001+".
+</output>
+
+<check>
+Silently confirm that the voice stays conversational, the skills are specific to the target role, company.industry matches the industry input, the years sit in the level band, and trace_id and generated_at match the inputs. Output the JSON object only.
+</check>
