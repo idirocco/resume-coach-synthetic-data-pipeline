@@ -1,0 +1,52 @@
+Generate one realistic, fully fictional resume for the supplied job description.
+
+Target fit level: [FIT_LEVEL]
+Required skills to include: between [MIN_MATCHED_SKILLS] and [MAX_MATCHED_SKILLS] of the listed required skills, inclusive. The target is Jaccard overlap: matched normalized skills divided by the union of job-required and resume skills. Count a match only when the resume skill is the same skill after lowercasing, removing version numbers, removing a trailing .js, and stripping trailing "developer" or "engineer". To keep the overlap in range, include only the selected required skills in the skills list; do not add extra unrelated skills. For complete_mismatch, include one plausible unrelated skill and no required skills.
+Required job skills: [REQUIRED_SKILLS]
+Target experience: [EXPERIENCE_YEARS] years at [EXPERIENCE_LEVEL] level.
+Writing style: [WRITING_STYLE]
+
+Use the job context to make the candidate plausible. For partial, poor, and complete_mismatch resumes, make gaps intentional but nuanced: use adjacent transferable skills and introduce a subtle seniority or experience-level mismatch without making the resume obviously incompetent. Excellent and good fits should have correspondingly stronger evidence for the job's requirements. Keep achievements credible and do not claim expertise in every skill.
+
+Return one JSON object only with this shape:
+{
+  "contact_info": {
+    "name": "fictional full name",
+    "email": "fictional.address@example.com",
+    "phone": "+1-202-555-0100",
+    "location": "City, Region",
+    "linkedin": "optional fictional profile URL",
+    "portfolio": "optional fictional portfolio URL"
+  },
+  "education": [
+    {
+      "degree": "degree",
+      "institution": "fictional institution",
+      "graduation_date": "YYYY-MM-DD",
+      "gpa": 3.5,
+      "coursework": ["course"]
+    }
+  ],
+  "experience": [
+    {
+      "company": "fictional company",
+      "title": "role title",
+      "start_date": "YYYY-MM-DD",
+      "end_date": "YYYY-MM-DD or omit for current role",
+      "responsibilities": ["responsibility"],
+      "achievements": ["credible achievement"]
+    }
+  ],
+  "skills": [
+    {
+      "name": "skill",
+      "proficiency_level": "Beginner, Intermediate, Advanced, or Expert",
+      "years": 3
+    }
+  ]
+}
+
+Use ISO dates, realistic timelines, one or more education entries and experience entries, and 1-30 skills. Contact details must be fictional: use an example.com email and a reserved 202-555-01xx phone number. Optional fields may be omitted. Do not include metadata; the pipeline adds and validates it.
+
+Job description:
+[JOB_DESCRIPTION]

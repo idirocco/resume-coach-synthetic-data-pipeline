@@ -3,13 +3,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 # Total job descriptions for step 1. Templates and industries are cycled so both are used evenly.
-N = 10
+JOBS = 10
+RESUMES_PER_JOB = 2
+RESUME_WRITING_STYLES = ["concise", "metrics-driven", "technical", "narrative", "understated"]
 
-MODEL = "openai/gpt-4o-mini"
+MODEL = "meta-llama/llama-3.1-8b-instruct"
 TEMPERATURE = 0.8
 MAX_ATTEMPTS = 3
 
 PROMPTS_DIR = ROOT / "prompts" / "job_description"
+RESUME_PROMPTS_DIR = ROOT / "prompts" / "resume"
 OUTPUT_DIR = ROOT / "output"
 
 

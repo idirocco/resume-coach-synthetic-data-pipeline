@@ -39,7 +39,12 @@ def _count_sentences(text: str) -> int:
 
 
 def _skill_key(skill: str) -> str:
-    return " ".join(skill.lower().split())
+    normalized = skill.lower().replace(".js", " ")
+    normalized = re.sub(r"\b\d+(?:\.\d+)*\b|(?<=[a-z])\d+(?:\.\d+)*\b", " ", normalized)
+    parts = normalized.split()
+    while parts and parts[-1] in {"developer", "engineer"}:
+        parts.pop()
+    return " ".join(parts).strip(" -_.")
 
 
 @dataclass(frozen=True)
@@ -116,6 +121,130 @@ class JobDescription(StrictModel):
         if problems:
             raise PydanticCustomError("job_description_rules", "; ".join(problems))
         return self
+
+
+FitLevel = Literal["excellent", "good", "partial", "poor", "complete_mismatch"]
+ProficiencyLevel = Literal["Beginner", "Intermediate", "Advanced", "Expert"]
+
+
+class ContactInfo(StrictModel):
+    name: NonBlank
+    email: NonBlank
+    phone: NonBlank = Field(min_length=10)
+    location: NonBlank
+    linkedin: NonBlank | None = None
+    portfolio: NonBlank | None = None
+
+    @model_validator(mode="after")
+    def validate_email(self) -> "ContactInfo":
+        if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", self.email):
+            raise ValueError("email must be a valid email address")
+        return self
+
+
+class Education(StrictModel):
+    degree: NonBlank
+    institution: NonBlank
+    graduation_date: NonBlank
+    gpa: float | None = Field(default=None, ge=0.0, le=4.0)
+    coursework: list[NonBlank] | None = None
+
+    @model_validator(mode="after")
+    def validate_graduation_date(self) -> "Education":
+        _parse_iso_date(self.graduation_date, "graduation_date")
+        return self
+
+
+class Experience(StrictModel):
+    company: NonBlank
+    title: NonBlank
+    start_date: NonBlank
+    end_date: NonBlank | None = None
+    responsibilities: list[NonBlank] = Field(min_length=1, max_length=8)
+    achievements: list[NonBlank] = Field(min_length=1, max_length=8)
+
+    @model_validator(mode="after")
+    def validate_dates(self) -> "Experience":
+        start_date = _parse_iso_date(self.start_date, "start_date")
+        if self.end_date is not None:
+            end_date = _parse_iso_date(self.end_date, "end_date")
+            if end_date <= start_date:
+                raise ValueError("end_date must be after start_date")
+        return self
+
+
+class ResumeSkill(StrictModel):
+    name: NonBlank
+    proficiency_level: ProficiencyLevel
+    years: float | None = Field(default=None, ge=0.0, le=50.0)
+
+
+class ResumeMetadata(StrictModel):
+    trace_id: NonBlank
+    generated_at: NonBlank
+    prompt_template: NonBlank
+    fit_level: FitLevel
+    writing_style: NonBlank
+    job_trace_id: NonBlank | None = None
+
+
+class Resume(StrictModel):
+    contact_info: ContactInfo
+    education: list[Education] = Field(min_length=1, max_length=5)
+    experience: list[Experience] = Field(min_length=1, max_length=8)
+    skills: list[ResumeSkill] = Field(min_length=1, max_length=30)
+    metadata: ResumeMetadata
+
+    @model_validator(mode="after")
+    def validate_fit_level(self, info: ValidationInfo) -> "Resume":
+        required_skills = info.context.get("required_skills", []) if info.context else []
+        expected_fit_level = info.context.get("fit_level") if info.context else None
+        if not required_skills:
+            return self
+
+        required_keys = {_skill_key(skill) for skill in required_skills}
+        resume_keys = {_skill_key(skill.name) for skill in self.skills}
+        union = required_keys | resume_keys
+        overlap = len(required_keys & resume_keys) / len(union) if union else 0.0
+        actual_fit_level = fit_level_for_overlap(overlap)
+        if actual_fit_level != self.metadata.fit_level:
+            raise ValueError(
+                f"metadata.fit_level is {self.metadata.fit_level}, but normalized required-skill overlap "
+                f"{overlap:.0%} is {actual_fit_level}"
+            )
+        if expected_fit_level is not None and actual_fit_level != expected_fit_level:
+            raise ValueError(
+                f"normalized required-skill overlap {overlap:.0%} must be {expected_fit_level}"
+            )
+        return self
+
+
+def fit_level_for_overlap(overlap: float) -> FitLevel:
+    if overlap >= 0.8:
+        return "excellent"
+    if overlap >= 0.6:
+        return "good"
+    if overlap >= 0.4:
+        return "partial"
+    if overlap >= 0.2:
+        return "poor"
+    return "complete_mismatch"
+
+
+def _parse_iso_date(value: str, field_name: str):
+    from datetime import date
+
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an ISO date (YYYY-MM-DD)") from exc
+
+
+def parse_resume(payload, *, required_skills, fit_level) -> Resume:
+    return Resume.model_validate(
+        payload,
+        context={"required_skills": required_skills, "fit_level": fit_level},
+    )
 
 
 def _in_range(count: int, bounds: tuple[int, int]) -> bool:
