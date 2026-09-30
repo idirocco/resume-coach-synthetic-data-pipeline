@@ -28,7 +28,7 @@ or validation rules. Repository instructions make this workflow always-on; this 
 ## Entry Format
 
 ```markdown
-## Iteration Log Entry
+## Iteration N
 
 | Field         | Value                                                               |
 | ------------- | ------------------------------------------------------------------- |
