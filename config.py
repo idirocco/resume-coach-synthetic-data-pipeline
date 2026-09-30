@@ -4,12 +4,14 @@ ROOT = Path(__file__).resolve().parent
 
 # Total job descriptions for step 1. Templates and industries are cycled so both are used evenly.
 JOBS = 10
-RESUMES_PER_JOB = 2
+RESUMES_PER_JOB = 5
 RESUME_WRITING_STYLES = ["concise", "metrics-driven", "technical", "narrative", "understated"]
 
 MODEL = "meta-llama/llama-3.1-8b-instruct"
 TEMPERATURE = 0.8
 MAX_ATTEMPTS = 3
+# Upper bound for simultaneous LLM requests.
+MAX_CONCURRENT_REQUESTS = 3
 
 PROMPTS_DIR = ROOT / "prompts" / "job_description"
 RESUME_PROMPTS_DIR = ROOT / "prompts" / "resume"

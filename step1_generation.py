@@ -3,6 +3,7 @@ import math
 import os
 import re
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
@@ -10,6 +11,7 @@ from openai import OpenAI
 
 from config import (
     INDUSTRIES,
+    MAX_CONCURRENT_REQUESTS,
     MAX_ATTEMPTS,
     MODEL,
     JOBS,
@@ -245,71 +247,89 @@ def generate_job_descriptions():
     resumes_written = 0
     resumes_failed = 0
 
-    for item in batch:
-        label = f"[{item['index'] + 1}/{JOBS}] {item['prompt_template']} | {item['industry']}"
-        print(label)
-        payload, failure = generate_one(
-            client,
-            item["prompt_template"],
-            templates[item["prompt_template"]],
-            item["industry"],
-        )
-        if payload is None:
-            failed += 1
-            error = failure["error"] if failure else "generation failed without error details"
-            print(f"  skipped: {error}")
-            continue
-        append_job(
-            output_path,
-            {
-                "index": item["index"],
-                "prompt_template": item["prompt_template"],
-                "assigned_industry": item["industry"],
-                "model": MODEL,
-                "job_description": payload,
-            },
-        )
-        written += 1
-
-        try:
-            render_resume_prompt(
-                resume_template,
-                payload,
-                fit_plan[0],
-                RESUME_WRITING_STYLES[0],
+    with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_REQUESTS) as executor:
+        job_futures = []
+        for item in batch:
+            label = f"[{item['index'] + 1}/{JOBS}] {item['prompt_template']} | {item['industry']}"
+            print(label)
+            job_futures.append(
+                (
+                    item,
+                    executor.submit(
+                        generate_one,
+                        client,
+                        item["prompt_template"],
+                        templates[item["prompt_template"]],
+                        item["industry"],
+                    ),
+                )
             )
-            payload["metadata"]["trace_id"]
-        except (KeyError, TypeError) as exc:
-            print(f"  resume generation skipped: job lacks prompt fields ({exc})")
-            continue
 
-        for resume_index, fit_level in enumerate(fit_plan):
-            writing_style = RESUME_WRITING_STYLES[resume_index % len(RESUME_WRITING_STYLES)]
-            print(f"  resume {resume_index + 1}/{len(fit_plan)}: {fit_level} ({writing_style})")
-            resume_payload, resume_failure = generate_resume_one(
-                client,
-                payload,
-                resume_template,
-                fit_level,
-                writing_style,
-            )
-            if resume_payload is None:
-                resumes_failed += 1
-                error = resume_failure["error"] if resume_failure else "generation failed without error details"
-                print(f"    skipped: {error}")
+        for item, job_future in job_futures:
+            payload, failure = job_future.result()
+            if payload is None:
+                failed += 1
+                error = failure["error"] if failure else "generation failed without error details"
+                print(f"  skipped: {error}")
                 continue
-            append_job(resume_path, resume_payload)
-            resumes_written += 1
             append_job(
-                pair_path,
+                output_path,
                 {
-                    "pair_id": uuid.uuid4().hex[:12],
-                    "job_trace_id": payload["metadata"]["trace_id"],
-                    "resume_trace_id": resume_payload["metadata"]["trace_id"],
-                    "fit_level": resume_payload["metadata"]["fit_level"],
-                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                    "index": item["index"],
+                    "prompt_template": item["prompt_template"],
+                    "assigned_industry": item["industry"],
+                    "model": MODEL,
+                    "job_description": payload,
                 },
             )
+            written += 1
+
+            try:
+                render_resume_prompt(
+                    resume_template,
+                    payload,
+                    fit_plan[0],
+                    RESUME_WRITING_STYLES[0],
+                )
+                payload["metadata"]["trace_id"]
+            except (KeyError, TypeError) as exc:
+                print(f"  resume generation skipped: job lacks prompt fields ({exc})")
+                continue
+
+            resume_futures = []
+            for resume_index, fit_level in enumerate(fit_plan):
+                writing_style = RESUME_WRITING_STYLES[resume_index % len(RESUME_WRITING_STYLES)]
+                print(f"  resume {resume_index + 1}/{len(fit_plan)}: {fit_level} ({writing_style})")
+                resume_futures.append(
+                    executor.submit(
+                        generate_resume_one,
+                        client,
+                        payload,
+                        resume_template,
+                        fit_level,
+                        writing_style,
+                    )
+                )
+
+            for resume_future in resume_futures:
+                resume_payload, resume_failure = resume_future.result()
+                if resume_payload is None:
+                    resumes_failed += 1
+                    error = resume_failure["error"] if resume_failure else "generation failed without error details"
+                    print(f"    skipped: {error}")
+                    continue
+                append_job(resume_path, resume_payload)
+                resumes_written += 1
+                append_job(
+                    pair_path,
+                    {
+                        "pair_id": uuid.uuid4().hex[:12],
+                        "job_trace_id": payload["metadata"]["trace_id"],
+                        "resume_trace_id": resume_payload["metadata"]["trace_id"],
+                        "fit_level": resume_payload["metadata"]["fit_level"],
+                        "generated_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
 
     print(f"Wrote {written} job descriptions to {output_path}")
     print(f"Wrote {resumes_written} resumes to {resume_path}")
