@@ -1,15 +1,13 @@
 import importlib.util
 import os
 
-from dotenv import load_dotenv
-
 from config import ROOT, ensure_output_dir
 
 REQUIRED_PACKAGES = ["openai", "dotenv", "pydantic"]
 
 
-def ensure_dependencies():
-    missing = [pkg for pkg in REQUIRED_PACKAGES if importlib.util.find_spec(pkg) is None]
+def ensure_dependencies(packages=REQUIRED_PACKAGES):
+    missing = [pkg for pkg in packages if importlib.util.find_spec(pkg) is None]
     if missing:
         print("Missing required dependencies:", ", ".join(missing))
         print("Please install them before running the pipeline:")
@@ -20,6 +18,8 @@ def ensure_dependencies():
 
 
 def ensure_openrouter_key():
+    from dotenv import load_dotenv
+
     load_dotenv(ROOT / ".env")
     if not os.getenv("OPENROUTER_API_KEY"):
         print("Missing environment variable: OPENROUTER_API_KEY")
@@ -30,7 +30,10 @@ def ensure_openrouter_key():
         raise SystemExit(1)
 
 
-def run_startup_checks():
+def run_startup_checks(step="step1"):
     ensure_output_dir()
-    ensure_dependencies()
-    ensure_openrouter_key()
+    if step in {"step1", "all"}:
+        ensure_dependencies(["openai", "dotenv"])
+        ensure_openrouter_key()
+    if step in {"step2", "all"}:
+        ensure_dependencies(["pydantic"])

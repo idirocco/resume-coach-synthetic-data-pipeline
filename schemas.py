@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError, ValidationInfo, model_validator
@@ -45,6 +46,13 @@ def _skill_key(skill: str) -> str:
     while parts and parts[-1] in {"developer", "engineer"}:
         parts.pop()
     return " ".join(parts).strip(" -_.")
+
+
+def _parse_iso_datetime(value: str, field_name: str) -> None:
+    try:
+        datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an ISO datetime") from exc
 
 
 @dataclass(frozen=True)
@@ -97,7 +105,7 @@ class Requirements(StrictModel):
     required_skills: list[NonBlank] = Field(min_length=5, max_length=10)
     preferred_skills: list[NonBlank] = Field(min_length=3, max_length=5)
     education: NonBlank
-    experience_years: int = Field(ge=0)
+    experience_years: int = Field(ge=0, le=30)
     experience_level: ExperienceLevel
 
 
@@ -105,6 +113,11 @@ class Metadata(StrictModel):
     trace_id: NonBlank
     generated_at: NonBlank
     is_niche_role: bool
+
+    @model_validator(mode="after")
+    def validate_generated_at(self) -> "Metadata":
+        _parse_iso_datetime(self.generated_at, "generated_at")
+        return self
 
 
 class JobDescription(StrictModel):
@@ -125,6 +138,19 @@ class JobDescription(StrictModel):
 
 FitLevel = Literal["excellent", "good", "partial", "poor", "complete_mismatch"]
 ProficiencyLevel = Literal["Beginner", "Intermediate", "Advanced", "Expert"]
+
+
+class ResumeJobPair(StrictModel):
+    pair_id: NonBlank
+    job_trace_id: NonBlank
+    resume_trace_id: NonBlank
+    fit_level: FitLevel
+    generated_at: NonBlank
+
+    @model_validator(mode="after")
+    def validate_generated_at(self) -> "ResumeJobPair":
+        _parse_iso_datetime(self.generated_at, "generated_at")
+        return self
 
 
 class ContactInfo(StrictModel):
@@ -186,6 +212,11 @@ class ResumeMetadata(StrictModel):
     fit_level: FitLevel
     writing_style: NonBlank
     job_trace_id: NonBlank | None = None
+
+    @model_validator(mode="after")
+    def validate_generated_at(self) -> "ResumeMetadata":
+        _parse_iso_datetime(self.generated_at, "generated_at")
+        return self
 
 
 class Resume(StrictModel):

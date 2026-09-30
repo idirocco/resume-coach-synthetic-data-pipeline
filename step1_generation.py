@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from openai import OpenAI
-from pydantic import ValidationError
 
 from config import (
     INDUSTRIES,
@@ -23,7 +22,6 @@ from config import (
     ROOT,
     TEMPERATURE,
 )
-from schemas import parse_job_description, parse_resume, validation_messages
 
 FIT_LEVELS = ("excellent", "good", "partial", "poor", "complete_mismatch")
 
@@ -144,16 +142,7 @@ def generate_one(client, template_name, template_text, industry):
             )
             raw_response = response.choices[0].message.content or ""
             payload = parse_json_object(raw_response)
-            job = parse_job_description(
-                payload,
-                industry=industry,
-                trace_id=trace_id,
-                generated_at=generated_at,
-                prompt_template=template_name,
-            )
-            return job.model_dump(), None
-        except ValidationError as exc:
-            last_error = "; ".join(validation_messages(exc))
+            return payload, None
         except Exception as exc:
             last_error = str(exc)
         print(f"  attempt {attempt} failed: {last_error}")
@@ -162,9 +151,8 @@ def generate_one(client, template_name, template_text, industry):
             {
                 "role": "user",
                 "content": (
-                    f"That response is invalid: {last_error}. "
-                    "Return a corrected JSON object only, fixing this issue while keeping "
-                    "everything else that was already correct."
+                    f"That response could not be used: {last_error}. "
+                    "Return a valid JSON object only."
                 ),
             }
         )
@@ -218,14 +206,7 @@ def generate_resume_one(client, job, template_text, fit_level, writing_style):
                 "writing_style": writing_style,
                 "job_trace_id": job["metadata"]["trace_id"],
             }
-            resume = parse_resume(
-                payload,
-                required_skills=job["requirements"]["required_skills"],
-                fit_level=fit_level,
-            )
-            return resume.model_dump(), None
-        except ValidationError as exc:
-            last_error = "; ".join(validation_messages(exc))
+            return payload, None
         except Exception as exc:
             last_error = str(exc)
         print(f"  resume attempt {attempt} failed: {last_error}")
@@ -234,8 +215,8 @@ def generate_resume_one(client, job, template_text, fit_level, writing_style):
             {
                 "role": "user",
                 "content": (
-                    f"That resume is invalid: {last_error}. Return a corrected JSON object only, "
-                    "keeping the same target fit level and fixing all listed issues."
+                    f"That response could not be used: {last_error}. Return a valid JSON object only, "
+                    "keeping the requested fit level and writing style."
                 ),
             }
         )
@@ -257,6 +238,8 @@ def generate_job_descriptions():
     output_path = jobs_output_path(started_at)
     resume_path = resumes_output_path(started_at)
     pair_path = pairs_output_path(started_at)
+    for path in (output_path, resume_path, pair_path):
+        path.touch(exist_ok=True)
     written = 0
     failed = 0
     resumes_written = 0
@@ -287,6 +270,18 @@ def generate_job_descriptions():
             },
         )
         written += 1
+
+        try:
+            render_resume_prompt(
+                resume_template,
+                payload,
+                fit_plan[0],
+                RESUME_WRITING_STYLES[0],
+            )
+            payload["metadata"]["trace_id"]
+        except (KeyError, TypeError) as exc:
+            print(f"  resume generation skipped: job lacks prompt fields ({exc})")
+            continue
 
         for resume_index, fit_level in enumerate(fit_plan):
             writing_style = RESUME_WRITING_STYLES[resume_index % len(RESUME_WRITING_STYLES)]
@@ -320,7 +315,12 @@ def generate_job_descriptions():
     print(f"Wrote {resumes_written} resumes to {resume_path}")
     print(f"Wrote {resumes_written} resume-job pairs to {pair_path}")
     if failed:
-        print(f"{failed} items failed validation after {MAX_ATTEMPTS} attempts.")
+        print(f"{failed} jobs could not be generated after {MAX_ATTEMPTS} attempts.")
     if resumes_failed:
-        print(f"{resumes_failed} resumes failed validation after {MAX_ATTEMPTS} attempts.")
-    return output_path
+        print(f"{resumes_failed} resumes could not be generated after {MAX_ATTEMPTS} attempts.")
+    return {
+        "started_at": started_at,
+        "jobs_path": output_path,
+        "resumes_path": resume_path,
+        "pairs_path": pair_path,
+    }
