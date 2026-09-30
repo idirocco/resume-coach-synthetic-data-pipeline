@@ -38,3 +38,7 @@ The pipeline is a straight-line script, not a framework — each module has one 
 ### Adding a new prompt template
 
 Touch three places together: add the `.txt` file under `prompts/job_description/`, add its name to `PROMPT_TEMPLATES` in `config.py`, and add a matching entry to `TEMPLATE_CONSTRAINTS` in `schemas.py` (omit fields to inherit the `TemplateConstraints` defaults).
+
+## Iteration Logging
+
+At the end of every work iteration that changes pipeline behavior, prompts, configuration, thresholds, or validation rules, append an entry to `iteration_log.md` using the format in that file. Record the measured before/after metric and delta when available; never invent metrics or reasons. Use `Not measured` when no comparable metric exists and `Pending` for a keep/revert decision that lacks evidence. See `.github/skills/iteration-log/SKILL.md` for the workflow.
