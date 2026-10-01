@@ -5,7 +5,7 @@ Generate and validate synthetic job descriptions, resumes, and resume-job pairs.
 ## Commands
 
 ```bash
-python3 pipeline.py          # generate data (step1)
+python3 pipeline.py          # generate data, then validate that run
 python3 pipeline.py step1    # generate data
 python3 pipeline.py step1 --only-jobs
 python3 pipeline.py step1 --only-resumes
@@ -14,7 +14,6 @@ python3 pipeline.py step2    # validate the newest complete source run
 python3 pipeline.py step2 --only-jobs
 python3 pipeline.py step2 --only-resumes
 python3 pipeline.py step2 --only-pairs
-python3 pipeline.py all      # generate, then validate that run
 ```
 
 `step1` runs generation in dependency order: jobs, resumes, then pairs. Omit the selector to generate all three. Its selectors are mutually exclusive:
@@ -37,7 +36,7 @@ Step2 validates job descriptions, resumes, and pair records using Pydantic, incl
 - `--only-resumes` validates the newest jobs and resumes files; job records are checked as dependencies, but only resume results are included in the report.
 - `--only-pairs` validates the newest jobs, resumes, and pairs files; jobs and resumes are checked as dependencies, but only pair results are included in the report.
 
-Selected modes choose the newest file for each required type independently, so separately generated stages can be checked together. Step2 reports a clear missing-file error when a required source is unavailable. `all` validates the exact run it just generated.
+Selected modes choose the newest file for each required type independently, so separately generated stages can be checked together. Step2 reports a clear missing-file error when a required source is unavailable. Running `python3 pipeline.py` with no arguments generates all three artifact types and validates the exact run it just generated. Use `step1` or `step2` to run a single step.
 
 Each validation invocation writes three artifacts under `output/`, named with its UTC timestamp:
 
