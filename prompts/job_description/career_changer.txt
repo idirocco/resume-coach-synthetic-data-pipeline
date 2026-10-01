@@ -36,7 +36,7 @@ requirements.experience_years is a non-negative integer inside that level's band
 requirements.required_skills is 5 to 8 noun phrases.
 requirements.preferred_skills is 3 to 5 noun phrases, with none repeated from required_skills.
 responsibilities is 5 to 7 items covering the actual job, including what the person owns in the first months and what they own later.
-description is exactly 10 complete sentences. Count only sentences in this field, avoid abbreviations with periods, and recount before returning.
+description is exactly 10 sentences in one paragraph. End every sentence with a period and begin each new sentence with an uppercase letter. Do not use abbreviations or initials with periods, bullets, or standalone headings. Before returning, count the sentence-ending periods and adjust this field to exactly 10 sentences.
 title is a title for the target role.
 metadata.is_niche_role is true only when the destination job is a narrow specialty most people in the parent occupation do not practice. A career-change framing does not make it niche. Use a JSON boolean.
 </field_rules>
@@ -52,5 +52,5 @@ company.size is exactly one of "1-10", "11-50", "51-200", "201-1000", "1001-5000
 </output>
 
 <check>
-Silently confirm that the description has exactly 10 sentences, a career changer can see what transfers, what they must already know, and what the weekly job is, that the title is still the target role, that company.industry matches the industry input, and that trace_id and generated_at match the inputs. Output the JSON object only.
+Silently confirm that the description has exactly 10 sentences in one paragraph, with each sentence after the first starting with an uppercase letter and no abbreviations or initials containing periods; a career changer can see what transfers, what they must already know, and what the weekly job is, that the title is still the target role, that company.industry matches the industry input, and that trace_id and generated_at match the inputs. Output the JSON object only.
 </check>

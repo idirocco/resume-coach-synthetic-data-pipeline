@@ -36,7 +36,7 @@ requirements.experience_years is a non-negative integer inside that level's band
 requirements.required_skills is 5 to 8 noun phrases, at least three of them specialty-specific.
 requirements.preferred_skills is 3 to 5 noun phrases inside the same specialty, with none repeated from required_skills.
 responsibilities is 5 to 7 items.
-description is exactly 10 complete sentences. Count only sentences in this field, avoid abbreviations with periods, and recount before returning.
+description is exactly 10 sentences in one paragraph. End every sentence with a period and begin each new sentence with an uppercase letter. Do not use abbreviations or initials with periods, bullets, or standalone headings. Before returning, count the sentence-ending periods and adjust this field to exactly 10 sentences.
 metadata.is_niche_role is the JSON boolean true.
 </field_rules>
 
@@ -51,5 +51,5 @@ company.size is exactly one of "1-10", "11-50", "51-200", "201-1000", "1001-5000
 </output>
 
 <check>
-Silently confirm that the description has exactly 10 sentences, the specialty exists in the labor market, the company would hire it, a general resume for the parent occupation would be only partly qualified, company.industry matches the industry input, is_niche_role is true, and trace_id and generated_at match the inputs. Output the JSON object only.
+Silently confirm that the description has exactly 10 sentences in one paragraph, with each sentence after the first starting with an uppercase letter and no abbreviations or initials containing periods; the specialty exists in the labor market, the company would hire it, a general resume for the parent occupation would be only partly qualified, company.industry matches the industry input, is_niche_role is true, and trace_id and generated_at match the inputs. Output the JSON object only.
 </check>
