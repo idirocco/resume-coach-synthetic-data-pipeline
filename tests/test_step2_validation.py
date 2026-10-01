@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from pydantic import ValidationError
 
-from pipeline import main
+from pipeline import main, parse_arguments
 from schemas import Requirements, ResumeJobPair
 from step1_generation import generate_one
 from startup_checks import run_startup_checks
@@ -142,11 +142,67 @@ class Step2ValidationTests(unittest.TestCase):
         )
         self.assertEqual(result["report"]["summary"]["valid_records"], 3)
         self.assertEqual(result["report"]["summary"]["invalid_records"], 0)
+        self.assertEqual(result["report"]["summary"]["blocked_records"], 0)
         self.assertTrue(result["validated_path"].is_file())
         self.assertTrue(result["invalid_path"].is_file())
         self.assertTrue(result["failure_modes_path"].is_file())
         validated = json.loads(result["validated_path"].read_text(encoding="utf-8"))
         self.assertEqual({record["record_type"] for record in validated}, {"job", "resume", "pair"})
+
+    def test_jobs_only_does_not_require_or_report_other_sources(self):
+        result = validate_run(
+            self.paths["jobs"],
+            output_dir=self.output_dir,
+            only="jobs",
+        )
+        validated = json.loads(result["validated_path"].read_text(encoding="utf-8"))
+        self.assertEqual([record["record_type"] for record in validated], ["job"])
+        self.assertEqual(result["report"]["summary"]["total_records"], 1)
+        self.assertEqual(set(result["report"]["source_files"]), {"jobs"})
+
+    def test_resumes_only_validates_jobs_as_dependency_without_reporting_them(self):
+        result = validate_run(
+            self.paths["jobs"],
+            self.paths["resumes"],
+            output_dir=self.output_dir,
+            only="resumes",
+        )
+        validated = json.loads(result["validated_path"].read_text(encoding="utf-8"))
+        self.assertEqual([record["record_type"] for record in validated], ["resume"])
+        self.assertEqual(result["report"]["summary"]["total_records"], 1)
+        self.assertEqual(set(result["report"]["source_files"]), {"jobs", "resumes"})
+
+    def test_pairs_only_validates_both_dependencies_without_reporting_them(self):
+        result = validate_run(
+            self.paths["jobs"],
+            self.paths["resumes"],
+            self.paths["pairs"],
+            self.output_dir,
+            only="pairs",
+        )
+        validated = json.loads(result["validated_path"].read_text(encoding="utf-8"))
+        self.assertEqual([record["record_type"] for record in validated], ["pair"])
+        self.assertEqual(result["report"]["summary"]["total_records"], 1)
+
+    def test_latest_run_selection_requires_only_selected_dependencies(self):
+        partial_dir = self.root / "partial"
+        partial_dir.mkdir()
+        (partial_dir / "jobs_20260930T130000Z.jsonl").touch()
+        jobs_only = discover_latest_run(partial_dir, only="jobs")
+        self.assertEqual(set(jobs_only) - {"source_timestamp"}, {"jobs"})
+        with self.assertRaisesRegex(FileNotFoundError, "No resumes JSONL file"):
+            discover_latest_run(partial_dir, only="resumes")
+
+    def test_latest_resume_selection_can_use_separately_generated_jobs(self):
+        staged_dir = self.root / "staged"
+        staged_dir.mkdir()
+        jobs_path = staged_dir / "jobs_20260930T120000Z.jsonl"
+        resumes_path = staged_dir / "resumes_20260930T130000Z.jsonl"
+        jobs_path.touch()
+        resumes_path.touch()
+        selected = discover_latest_run(staged_dir, only="resumes")
+        self.assertEqual(selected["jobs"], jobs_path)
+        self.assertEqual(selected["resumes"], resumes_path)
 
     def test_email_failure_and_invalid_pair_reference_are_categorized(self):
         self.write_records(resume=make_resume(email="not-an-email"))
@@ -158,9 +214,13 @@ class Step2ValidationTests(unittest.TestCase):
         )
         categories = {record["category"] for record in result["report"]["invalid_records"]}
         self.assertIn("Format violations", categories)
-        self.assertIn("Logical inconsistencies", categories)
+        self.assertNotIn("Logical inconsistencies", categories)
+        self.assertEqual(
+            [record["record_type"] for record in result["report"]["blocked_records"]],
+            ["pair"],
+        )
 
-    def test_resume_cannot_use_schema_invalid_job_context(self):
+    def test_resume_and_pair_are_blocked_by_schema_invalid_job(self):
         job = make_job()
         job["job_description"]["company"]["size"] = "tiny"
         self.write_records(job=job)
@@ -171,8 +231,32 @@ class Step2ValidationTests(unittest.TestCase):
             self.output_dir,
         )
         invalid_records = result["report"]["invalid_records"]
+        blocked_records = result["report"]["blocked_records"]
+        self.assertEqual([record["record_type"] for record in invalid_records], ["job"])
+        self.assertEqual(
+            {record["record_type"] for record in blocked_records},
+            {"resume", "pair"},
+        )
+        self.assertEqual(result["report"]["summary"]["invalid_records"], 1)
+        self.assertEqual(result["report"]["summary"]["blocked_records"], 2)
+
+    def test_resume_with_unknown_job_reference_remains_invalid(self):
+        resume = make_resume()
+        resume["metadata"]["job_trace_id"] = "missing-job"
+        self.write_records(resume=resume)
+        result = validate_run(
+            self.paths["jobs"],
+            self.paths["resumes"],
+            self.paths["pairs"],
+            self.output_dir,
+        )
+        invalid_records = result["report"]["invalid_records"]
         resume_failure = next(record for record in invalid_records if record["record_type"] == "resume")
         self.assertEqual(resume_failure["category"], "Logical inconsistencies")
+        self.assertEqual(
+            result["report"]["summary"]["blocked_records"],
+            1,
+        )
 
     def test_latest_run_requires_all_three_files(self):
         older = "20260929T120000Z"
@@ -224,16 +308,29 @@ class Step2ValidationTests(unittest.TestCase):
         malformed = next(record for record in invalid if record["raw_record"] == "{broken json}")
         self.assertEqual(malformed["category"], "Format violations")
 
-    def test_all_passes_generated_paths_to_step2(self):
+    def test_no_args_generates_then_validates_generated_paths(self):
         generated = {"jobs_path": "jobs.jsonl", "resumes_path": "resumes.jsonl", "pairs_path": "pairs.jsonl"}
         with (
-            patch("pipeline.run_startup_checks"),
-            patch("sys.argv", ["pipeline.py", "all"]),
+            patch("pipeline.run_startup_checks") as startup,
+            patch("sys.argv", ["pipeline.py"]),
             patch("step1_generation.generate_job_descriptions", return_value=generated),
             patch("step2_validation.validate_run") as validate,
         ):
             main()
+        startup.assert_called_once_with("all", require_api_key=True)
         validate.assert_called_once_with("jobs.jsonl", "resumes.jsonl", "pairs.jsonl")
+
+    def test_all_is_not_a_supported_positional_argument(self):
+        with self.assertRaises(SystemExit):
+            parse_arguments(["all"])
+
+    def test_step2_selector_is_forwarded_to_latest_validation(self):
+        with (
+            patch("pipeline.run_startup_checks"),
+            patch("step2_validation.validate_latest_run") as validate,
+        ):
+            main(["step2", "--only-resumes"])
+        validate.assert_called_once_with(only="resumes")
 
     def test_step2_startup_does_not_check_api_key(self):
         with patch("startup_checks.ensure_openrouter_key") as ensure_key:

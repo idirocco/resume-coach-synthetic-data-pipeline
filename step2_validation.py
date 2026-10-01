@@ -18,22 +18,47 @@ ERROR_CATEGORIES = (
 )
 
 
-def discover_latest_run(output_dir=OUTPUT_DIR):
+def discover_latest_run(output_dir=OUTPUT_DIR, only=None):
+    if only not in {None, "jobs", "resumes", "pairs"}:
+        raise ValueError(f"unknown validation selection: {only}")
     runs = defaultdict(dict)
     for path in Path(output_dir).glob("*.jsonl"):
         match = SOURCE_FILE_PATTERN.fullmatch(path.name)
         if match:
             kind, timestamp = match.groups()
             runs[timestamp][kind] = path
+    required = {
+        None: ("jobs", "resumes", "pairs"),
+        "jobs": ("jobs",),
+        "resumes": ("jobs", "resumes"),
+        "pairs": ("jobs", "resumes", "pairs"),
+    }[only]
+    if only is not None:
+        selected_paths = {}
+        selected_timestamps = []
+        for kind in required:
+            candidates = [
+                (timestamp, paths[kind])
+                for timestamp, paths in runs.items()
+                if kind in paths
+            ]
+            if not candidates:
+                raise FileNotFoundError(f"No {kind} JSONL file found for {only} validation in {output_dir}")
+            timestamp, path = max(candidates, key=lambda item: item[0])
+            selected_paths[kind] = path
+            selected_timestamps.append(timestamp)
+        return {"source_timestamp": max(selected_timestamps), **selected_paths}
+
     complete = [
         (timestamp, paths)
         for timestamp, paths in runs.items()
-        if all(kind in paths for kind in ("jobs", "resumes", "pairs"))
+        if all(kind in paths for kind in required)
     ]
     if not complete:
-        raise FileNotFoundError(f"No complete jobs/resumes/pairs JSONL run found in {output_dir}")
+        kinds = "/".join(required)
+        raise FileNotFoundError(f"No {kinds} JSONL run found for {only or 'all'} validation in {output_dir}")
     timestamp, paths = max(complete, key=lambda item: item[0])
-    return {"source_timestamp": timestamp, **paths}
+    return {"source_timestamp": timestamp, **{kind: paths[kind] for kind in required}}
 
 
 def _read_jsonl(path):
@@ -129,6 +154,19 @@ def _add_invalid(invalid, entry, record_type, errors):
     )
 
 
+def _add_blocked(blocked, entry, record_type, reason, blocked_by):
+    blocked.append(
+        {
+            "record_type": record_type,
+            "source_file": entry["source_file"],
+            "line_number": entry["line_number"],
+            "raw_record": entry["raw_record"],
+            "reason": reason,
+            "blocked_by": blocked_by,
+        }
+    )
+
+
 def _valid_record(valid, entry, record_type, data):
     valid.append(
         {
@@ -159,11 +197,18 @@ def _job_parts(row):
 def _validate_job_entries(entries, valid, invalid):
     skills_by_job_trace = {}
     pending_valid = []
+    job_trace_counts = Counter()
     for entry in entries:
+        row = entry["data"]
+        job, _, _, _ = _job_parts(row)
+        metadata = job.get("metadata") if isinstance(job, dict) else None
+        trace_id = metadata.get("trace_id") if isinstance(metadata, dict) else None
+        if isinstance(trace_id, str):
+            job_trace_counts[trace_id] += 1
+
         if entry["errors"]:
             _add_invalid(invalid, entry, "job", entry["errors"])
             continue
-        row = entry["data"]
         if not isinstance(row, dict):
             _add_invalid(
                 invalid,
@@ -219,10 +264,9 @@ def _validate_job_entries(entries, valid, invalid):
         elif not isinstance(job, dict):
             _add_invalid(invalid, entry, "job", [{"type": "model_type", "loc": ["job_description"], "msg": "job_description must be an object"}])
 
-    job_rows_by_trace = defaultdict(list)
-    for entry, row, parsed_job, _ in pending_valid:
-        job_rows_by_trace[parsed_job["metadata"]["trace_id"]].append((entry, row, parsed_job))
-    duplicate_ids = {trace_id for trace_id, rows in job_rows_by_trace.items() if len(rows) > 1}
+    duplicate_ids = {
+        trace_id for trace_id, count in job_trace_counts.items() if count > 1
+    }
     for entry, row, parsed_job, errors in pending_valid:
         trace_id = parsed_job["metadata"]["trace_id"]
         if trace_id in duplicate_ids:
@@ -241,7 +285,8 @@ def _validate_job_entries(entries, valid, invalid):
         else:
             _valid_record(valid, entry, "job", {**row, "job_description": parsed_job})
             skills_by_job_trace[trace_id] = parsed_job["requirements"]["required_skills"]
-    return skills_by_job_trace
+    invalid_job_trace_ids = set(job_trace_counts) - set(skills_by_job_trace)
+    return skills_by_job_trace, invalid_job_trace_ids
 
 
 def _resume_parts(row):
@@ -253,10 +298,12 @@ def _resume_parts(row):
     return metadata.get("trace_id"), metadata.get("job_trace_id"), metadata.get("fit_level")
 
 
-def _validate_resume_entries(entries, skills_by_job_trace, valid, invalid):
+def _validate_resume_entries(entries, skills_by_job_trace, invalid_job_trace_ids, valid, invalid, blocked):
     resumes_by_trace = {}
     resume_trace_entries = defaultdict(list)
     pending_valid = []
+    pending_blocked = []
+    invalid_resume_trace_ids = set()
     for entry in entries:
         if entry["errors"]:
             _add_invalid(invalid, entry, "resume", entry["errors"])
@@ -273,8 +320,23 @@ def _validate_resume_entries(entries, skills_by_job_trace, valid, invalid):
         resume_trace_id, job_trace_id, fit_level = _resume_parts(row)
         if isinstance(resume_trace_id, str):
             resume_trace_entries[resume_trace_id].append(entry)
+
+        if isinstance(job_trace_id, str) and job_trace_id in invalid_job_trace_ids:
+            try:
+                parsed = parse_resume(row, required_skills=[], fit_level=None)
+            except ValidationError as exc:
+                _add_invalid(invalid, entry, "resume", _validation_errors(exc))
+                if isinstance(resume_trace_id, str):
+                    invalid_resume_trace_ids.add(resume_trace_id)
+            else:
+                pending_blocked.append((entry, parsed.model_dump(), resume_trace_id, job_trace_id))
+            continue
+
         errors = []
-        if not isinstance(job_trace_id, str) or job_trace_id not in skills_by_job_trace:
+        valid_job_reference = (
+            isinstance(job_trace_id, str) and job_trace_id in skills_by_job_trace
+        )
+        if not valid_job_reference:
             errors.append(
                 {
                     "type": "value_error",
@@ -282,13 +344,19 @@ def _validate_resume_entries(entries, skills_by_job_trace, valid, invalid):
                     "msg": "resume references a missing, invalid, or ambiguous job",
                 }
             )
-        required_skills = skills_by_job_trace.get(job_trace_id, [])
+        required_skills = skills_by_job_trace.get(job_trace_id, []) if valid_job_reference else []
         try:
-            parsed = parse_resume(row, required_skills=required_skills, fit_level=fit_level)
+            parsed = parse_resume(
+                row,
+                required_skills=required_skills,
+                fit_level=fit_level if valid_job_reference else None,
+            )
         except ValidationError as exc:
             errors.extend(_validation_errors(exc))
         if errors:
             _add_invalid(invalid, entry, "resume", errors)
+            if isinstance(resume_trace_id, str):
+                invalid_resume_trace_ids.add(resume_trace_id)
         else:
             pending_valid.append((entry, parsed.model_dump(), errors, resume_trace_id))
 
@@ -307,15 +375,56 @@ def _validate_resume_entries(entries, skills_by_job_trace, valid, invalid):
                     }
                 ],
             )
+            if isinstance(trace_id, str):
+                invalid_resume_trace_ids.add(trace_id)
         elif errors:
             _add_invalid(invalid, entry, "resume", errors)
         else:
             _valid_record(valid, entry, "resume", parsed_resume)
             resumes_by_trace[trace_id] = parsed_resume
-    return resumes_by_trace
+    for entry, parsed_resume, trace_id, job_trace_id in pending_blocked:
+        if trace_id in duplicate_ids:
+            _add_invalid(
+                invalid,
+                entry,
+                "resume",
+                [
+                    {
+                        "type": "value_error",
+                        "loc": ["metadata", "trace_id"],
+                        "msg": "resume trace_id is not unique",
+                    }
+                ],
+            )
+            if isinstance(trace_id, str):
+                invalid_resume_trace_ids.add(trace_id)
+        else:
+            _add_blocked(
+                blocked,
+                entry,
+                "resume",
+                "resume references a job that failed validation",
+                [{"record_type": "job", "trace_id": job_trace_id}],
+            )
+    blocked_resume_trace_ids = {
+        trace_id
+        for entry, _, trace_id, _ in pending_blocked
+        if isinstance(trace_id, str) and trace_id not in invalid_resume_trace_ids
+    }
+    return resumes_by_trace, invalid_resume_trace_ids, blocked_resume_trace_ids
 
 
-def _validate_pair_entries(entries, valid, invalid, jobs_by_trace, resumes_by_trace):
+def _validate_pair_entries(
+    entries,
+    valid,
+    invalid,
+    blocked,
+    jobs_by_trace,
+    resumes_by_trace,
+    invalid_job_trace_ids,
+    invalid_resume_trace_ids,
+    blocked_resume_trace_ids,
+):
     for entry in entries:
         if entry["errors"]:
             _add_invalid(invalid, entry, "pair", entry["errors"])
@@ -325,6 +434,23 @@ def _validate_pair_entries(entries, valid, invalid, jobs_by_trace, resumes_by_tr
             pair = ResumeJobPair.model_validate(row)
         except ValidationError as exc:
             _add_invalid(invalid, entry, "pair", _validation_errors(exc))
+            continue
+
+        blocked_by = []
+        if pair.job_trace_id in invalid_job_trace_ids:
+            blocked_by.append({"record_type": "job", "trace_id": pair.job_trace_id})
+        if pair.resume_trace_id in invalid_resume_trace_ids:
+            blocked_by.append({"record_type": "resume", "trace_id": pair.resume_trace_id})
+        elif pair.resume_trace_id in blocked_resume_trace_ids:
+            blocked_by.append({"record_type": "resume", "trace_id": pair.resume_trace_id})
+        if blocked_by:
+            _add_blocked(
+                blocked,
+                entry,
+                "pair",
+                "pair references a job or resume that failed validation",
+                blocked_by,
+            )
             continue
 
         errors = []
@@ -346,9 +472,10 @@ def _validate_pair_entries(entries, valid, invalid, jobs_by_trace, resumes_by_tr
             _valid_record(valid, entry, "pair", pair.model_dump())
 
 
-def _failure_report(valid, invalid, source_files, validation_timestamp):
+def _failure_report(valid, invalid, blocked, source_files, validation_timestamp):
     invalid_count = len(invalid)
-    total = len(valid) + invalid_count
+    blocked_count = len(blocked)
+    total = len(valid) + invalid_count + blocked_count
     category_counts = Counter(record["category"] for record in invalid)
     category_fields = defaultdict(Counter)
     for record in invalid:
@@ -371,37 +498,74 @@ def _failure_report(valid, invalid, source_files, validation_timestamp):
             "total_records": total,
             "valid_records": len(valid),
             "invalid_records": invalid_count,
+            "blocked_records": blocked_count,
             "success_rate_percent": round((100 * len(valid) / total), 2) if total else 0.0,
             "success_rate_target_percent": 90,
         },
         "categories": categories,
         "invalid_records": invalid,
+        "blocked_records": blocked,
     }
 
 
-def validate_run(jobs_path, resumes_path, pairs_path, output_dir=OUTPUT_DIR):
-    source_files = {
-        "jobs": Path(jobs_path),
-        "resumes": Path(resumes_path),
-        "pairs": Path(pairs_path),
-    }
-    for path in source_files.values():
-        if not path.is_file():
-            raise FileNotFoundError(path)
+def validate_run(jobs_path=None, resumes_path=None, pairs_path=None, output_dir=OUTPUT_DIR, only=None):
+    if only not in {None, "jobs", "resumes", "pairs"}:
+        raise ValueError(f"unknown validation selection: {only}")
+    required = {
+        None: ("jobs", "resumes", "pairs"),
+        "jobs": ("jobs",),
+        "resumes": ("jobs", "resumes"),
+        "pairs": ("jobs", "resumes", "pairs"),
+    }[only]
+    provided_paths = {"jobs": jobs_path, "resumes": resumes_path, "pairs": pairs_path}
+    source_files = {}
+    for kind in required:
+        path = provided_paths[kind]
+        if path is None or not Path(path).is_file():
+            raise FileNotFoundError(f"Required {kind} source file not found: {path}")
+        source_files[kind] = Path(path)
 
     job_entries = _read_jsonl(source_files["jobs"])
-    resume_entries = _read_jsonl(source_files["resumes"])
-    pair_entries = _read_jsonl(source_files["pairs"])
+    resume_entries = _read_jsonl(source_files["resumes"]) if "resumes" in source_files else []
+    pair_entries = _read_jsonl(source_files["pairs"]) if "pairs" in source_files else []
     valid = []
     invalid = []
-    skills_by_job_trace = _validate_job_entries(job_entries, valid, invalid)
+    blocked = []
+    job_valid = valid if only in {None, "jobs"} else []
+    job_invalid = invalid if only in {None, "jobs"} else []
+    skills_by_job_trace, invalid_job_trace_ids = _validate_job_entries(job_entries, job_valid, job_invalid)
     jobs_by_trace = {
         record["data"]["job_description"]["metadata"]["trace_id"]: record["data"]["job_description"]
-        for record in valid
+        for record in job_valid
         if record["record_type"] == "job"
     }
-    resumes_by_trace = _validate_resume_entries(resume_entries, skills_by_job_trace, valid, invalid)
-    _validate_pair_entries(pair_entries, valid, invalid, jobs_by_trace, resumes_by_trace)
+    resumes_by_trace = {}
+    invalid_resume_trace_ids = set()
+    blocked_resume_trace_ids = set()
+    if "resumes" in source_files:
+        resume_valid = valid if only in {None, "resumes"} else []
+        resume_invalid = invalid if only in {None, "resumes"} else []
+        resume_blocked = blocked if only in {None, "resumes"} else []
+        resumes_by_trace, invalid_resume_trace_ids, blocked_resume_trace_ids = _validate_resume_entries(
+            resume_entries,
+            skills_by_job_trace,
+            invalid_job_trace_ids,
+            resume_valid,
+            resume_invalid,
+            resume_blocked,
+        )
+    if "pairs" in source_files:
+        _validate_pair_entries(
+            pair_entries,
+            valid,
+            invalid,
+            blocked,
+            jobs_by_trace,
+            resumes_by_trace,
+            invalid_job_trace_ids,
+            invalid_resume_trace_ids,
+            blocked_resume_trace_ids,
+        )
 
     validation_timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     output_dir = Path(output_dir)
@@ -409,7 +573,7 @@ def validate_run(jobs_path, resumes_path, pairs_path, output_dir=OUTPUT_DIR):
     validated_path = output_dir / f"validated_data_{validation_timestamp}.json"
     invalid_path = output_dir / f"invalid_{validation_timestamp}.jsonl"
     failure_modes_path = output_dir / f"schema_failure_modes_{validation_timestamp}.json"
-    report = _failure_report(valid, invalid, source_files, validation_timestamp)
+    report = _failure_report(valid, invalid, blocked, source_files, validation_timestamp)
 
     validated_path.write_text(json.dumps(valid, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     with invalid_path.open("w", encoding="utf-8") as handle:
@@ -419,7 +583,8 @@ def validate_run(jobs_path, resumes_path, pairs_path, output_dir=OUTPUT_DIR):
 
     print(
         f"Validated {report['summary']['total_records']} records: "
-        f"{report['summary']['valid_records']} valid, {report['summary']['invalid_records']} invalid "
+        f"{report['summary']['valid_records']} valid, {report['summary']['invalid_records']} invalid, "
+        f"{report['summary']['blocked_records']} blocked "
         f"({report['summary']['success_rate_percent']}% success)."
     )
     print(f"Wrote validated records to {validated_path}")
@@ -433,6 +598,12 @@ def validate_run(jobs_path, resumes_path, pairs_path, output_dir=OUTPUT_DIR):
     }
 
 
-def validate_latest_run(output_dir=OUTPUT_DIR):
-    inputs = discover_latest_run(output_dir)
-    return validate_run(inputs["jobs"], inputs["resumes"], inputs["pairs"], output_dir)
+def validate_latest_run(output_dir=OUTPUT_DIR, only=None):
+    inputs = discover_latest_run(output_dir, only=only)
+    return validate_run(
+        inputs.get("jobs"),
+        inputs.get("resumes"),
+        inputs.get("pairs"),
+        output_dir,
+        only=only,
+    )

@@ -11,10 +11,13 @@ python3 pipeline.py step1 --only-jobs
 python3 pipeline.py step1 --only-resumes
 python3 pipeline.py step1 --only-pairs
 python3 pipeline.py step2    # validate the newest complete source run
+python3 pipeline.py step2 --only-jobs
+python3 pipeline.py step2 --only-resumes
+python3 pipeline.py step2 --only-pairs
 python3 pipeline.py all      # generate, then validate that run
 ```
 
-`step1` runs generation in dependency order: jobs, resumes, then pairs. Omit the selector to generate all three. Selectors are mutually exclusive and only apply to `step1`:
+`step1` runs generation in dependency order: jobs, resumes, then pairs. Omit the selector to generate all three. Its selectors are mutually exclusive:
 
 - `--only-jobs` generates job descriptions; it has no data-file dependencies.
 - `--only-resumes` generates resumes from the newest existing jobs JSONL file. It exits with an explicit error if no usable jobs file exists.
@@ -28,7 +31,13 @@ Generation uses the OpenRouter model `meta-llama/llama-3.1-8b-instruct`, configu
 
 ## Validation
 
-Step2 validates job descriptions, resumes, and pair records using Pydantic, including cross-record references and resume fit levels. When run by itself, it selects the newest timestamp for which all three source JSONL files exist. `all` validates the exact run it just generated.
+Step2 validates job descriptions, resumes, and pair records using Pydantic, including cross-record references and resume fit levels. Without a selector, it validates the newest timestamp for which all three source JSONL files exist. Its mutually exclusive selectors are:
+
+- `--only-jobs` validates the newest jobs JSONL file only.
+- `--only-resumes` validates the newest jobs and resumes files; job records are checked as dependencies, but only resume results are included in the report.
+- `--only-pairs` validates the newest jobs, resumes, and pairs files; jobs and resumes are checked as dependencies, but only pair results are included in the report.
+
+Selected modes choose the newest file for each required type independently, so separately generated stages can be checked together. Step2 reports a clear missing-file error when a required source is unavailable. `all` validates the exact run it just generated.
 
 Each validation invocation writes three artifacts under `output/`, named with its UTC timestamp:
 
