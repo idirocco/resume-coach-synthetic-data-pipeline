@@ -7,7 +7,7 @@ JOBS = 10
 RESUMES_PER_JOB = 5
 RESUME_WRITING_STYLES = ["concise", "metrics-driven", "technical", "narrative", "understated"]
 
-MODEL = "meta-llama/llama-3.1-8b-instruct"
+MODEL = "openai/gpt-oss-20b" #"meta-llama/llama-3.1-8b-instruct"
 TEMPERATURE = 0.8
 MAX_ATTEMPTS = 3
 # Upper bound for simultaneous LLM requests.

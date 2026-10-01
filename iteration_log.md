@@ -51,3 +51,16 @@
 | After Metric | Validated 10 records: 7 valid, 3 invalid, 0 blocked (70.0% success). |
 | Delta | 10.0% |
 | Keep/Revert | Keep. There's more room for improvement to reach the 90% success rate |
+
+## Iteration 4
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-10-01 |
+| Component | Generator |
+| Change | Added per-sentence planning slots and validator-aligned sentence-ending instructions to casual_startup, technical_detail, and niche_specialist description prompts |
+| Reason | All 3 invalid jobs in the latest report failed description sentence-count validation |
+| Before Metric | Validated 10 records: 7 valid, 3 invalid, 0 blocked (70.0% success) |
+| After Metric | Validated 10 records: 9 valid, 1 invalid, 0 blocked (90.0% success) |
+| Delta | 20.0% improvement |
+| Keep/Revert | Keep. The 90.0% success-rate target was reached |

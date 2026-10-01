@@ -33,7 +33,7 @@ requirements.experience_years is a non-negative integer inside that level's band
 requirements.education accepts equivalent practical experience, unless this job legally requires a license or degree, in which case state that requirement in plain language.
 requirements.required_skills and requirements.preferred_skills must each be a JSON array of strings, not a comma-separated string. required_skills has 5 to 8 noun phrases the team would interview for, with no personality traits. preferred_skills has 3 to 5 noun phrases that help in the first weeks, none repeated from required_skills.
 responsibilities must be a JSON array of exactly 6 plain sentence strings, not one string or objects. They are weekly activities written in the same voice as the description.
-description is exactly 8 sentences in one paragraph. End every sentence with a period and begin each new sentence with an uppercase letter. Do not use abbreviations or initials with periods, bullets, or standalone headings. Before returning, count the sentence-ending periods and adjust this field to exactly 8 sentences.
+description is exactly 8 sentences. Draft one complete sentence for each slot: (1) the role and what it owns; (2) the team and closest collaborators; (3) a typical weekly workflow; (4) a concrete client-facing activity; (5) tools or methods used; (6) how work is coordinated; (7) the outcome clients or the business need; (8) what success looks like. Remove the slot numbers and join the sentences into one paragraph. End each sentence with exactly one period, followed by one space and an uppercase first letter for the next sentence. Do not use abbreviations, initials, decimals, bullets, or standalone headings in this field. Count exactly 8 sentence-ending periods before returning.
 title is the target role, with a seniority word only when it matches experience_level.
 metadata.is_niche_role is true only when the title is a narrow specialty most people in the parent occupation do not practice. A small company does not make a role niche. Use a JSON boolean.
 </field_rules>
@@ -50,5 +50,5 @@ company.size is exactly one of "1-10", "11-50", "51-200", "201-1000", "1001-5000
 </output>
 
 <check>
-Silently confirm that the description has exactly 8 sentences in one paragraph, with each sentence after the first starting with an uppercase letter and no abbreviations or initials containing periods; the voice stays conversational, the skills are specific to the target role, company.industry matches the industry input, the years sit in the level band, and trace_id and generated_at match the inputs. Output the JSON object only.
+Silently confirm that the description has exactly 8 sentence-ending periods, and that each period is followed by one space and an uppercase next sentence (except the final period); the description is one paragraph with no abbreviations, initials, or decimals. Also confirm the voice stays conversational, the skills are specific to the target role, company.industry matches the industry input, the years sit in the level band, and trace_id and generated_at match the inputs. Output the JSON object only.
 </check>
