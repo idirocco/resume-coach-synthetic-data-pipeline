@@ -40,8 +40,9 @@ def main(argv=None):
         only = "pairs"
 
     run_complete_pipeline = args.step is None and only is None
+    run_jobs_validation = args.step is None and only == "jobs"
     step = args.step or "step1"
-    checks_step = "all" if run_complete_pipeline else step
+    checks_step = "all" if run_complete_pipeline or run_jobs_validation else step
     run_startup_checks(checks_step, require_api_key=only in {None, "jobs"})
 
     if step == "step2":
@@ -58,14 +59,18 @@ def main(argv=None):
         generated_run = generate_job_descriptions()
     else:
         generated_run = generate_job_descriptions(only=only)
-    if run_complete_pipeline:
+    if run_complete_pipeline or run_jobs_validation:
         from step2_validation import validate_run
 
-        result = validate_run(
+        validation_paths = (
             generated_run["jobs_path"],
             generated_run["resumes_path"],
             generated_run["pairs_path"],
         )
+        if run_jobs_validation:
+            result = validate_run(*validation_paths, only="jobs")
+        else:
+            result = validate_run(*validation_paths)
         if args.log:
             append_iteration_log(result["failure_modes_path"])
 

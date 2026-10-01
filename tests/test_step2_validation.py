@@ -320,6 +320,18 @@ class Step2ValidationTests(unittest.TestCase):
         startup.assert_called_once_with("all", require_api_key=True)
         validate.assert_called_once_with("jobs.jsonl", "resumes.jsonl", "pairs.jsonl")
 
+    def test_only_jobs_generates_then_validates_generated_jobs(self):
+        generated = {"jobs_path": "jobs.jsonl", "resumes_path": None, "pairs_path": None}
+        with (
+            patch("pipeline.run_startup_checks") as startup,
+            patch("step1_generation.generate_job_descriptions", return_value=generated) as generate,
+            patch("step2_validation.validate_run") as validate,
+        ):
+            main(["--only-jobs"])
+        startup.assert_called_once_with("all", require_api_key=True)
+        generate.assert_called_once_with(only="jobs")
+        validate.assert_called_once_with("jobs.jsonl", None, None, only="jobs")
+
     def test_all_is_not_a_supported_positional_argument(self):
         with self.assertRaises(SystemExit):
             parse_arguments(["all"])
