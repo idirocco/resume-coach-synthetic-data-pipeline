@@ -31,9 +31,8 @@ company.location is a city plus hybrid or remote, and a country.
 requirements.experience_level is one of: intern, entry, mid, senior, lead, executive.
 requirements.experience_years is a non-negative integer inside that level's band: intern 0; entry 0-2; mid 3-5; senior 5-8; lead 8-12; executive 10 or more.
 requirements.education accepts equivalent practical experience, unless this job legally requires a license or degree, in which case state that requirement in plain language.
-requirements.required_skills is 5 to 8 noun phrases the team would interview for. No personality traits.
-requirements.preferred_skills is 3 to 5 noun phrases that help in the first weeks, with none repeated from required_skills.
-responsibilities is 5 to 7 weekly activities, written in the same voice as the description.
+requirements.required_skills and requirements.preferred_skills must each be a JSON array of strings, not a comma-separated string. required_skills has 5 to 8 noun phrases the team would interview for, with no personality traits. preferred_skills has 3 to 5 noun phrases that help in the first weeks, none repeated from required_skills.
+responsibilities must be a JSON array of exactly 6 plain sentence strings, not one string or objects. They are weekly activities written in the same voice as the description.
 description is exactly 8 sentences in one paragraph. End every sentence with a period and begin each new sentence with an uppercase letter. Do not use abbreviations or initials with periods, bullets, or standalone headings. Before returning, count the sentence-ending periods and adjust this field to exactly 8 sentences.
 title is the target role, with a seniority word only when it matches experience_level.
 metadata.is_niche_role is true only when the title is a narrow specialty most people in the parent occupation do not practice. A small company does not make a role niche. Use a JSON boolean.
@@ -46,6 +45,7 @@ company: name, industry, size, location.
 requirements: required_skills, preferred_skills, education, experience_years, experience_level.
 Then title, description, responsibilities.
 metadata: trace_id, generated_at, is_niche_role.
+required_skills and preferred_skills are arrays of strings. responsibilities is an array of strings.
 company.size is exactly one of "1-10", "11-50", "51-200", "201-1000", "1001-5000", "5001+".
 </output>
 
