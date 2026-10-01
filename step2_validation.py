@@ -21,44 +21,31 @@ ERROR_CATEGORIES = (
 def discover_latest_run(output_dir=OUTPUT_DIR, only=None):
     if only not in {None, "jobs", "resumes", "pairs"}:
         raise ValueError(f"unknown validation selection: {only}")
-    runs = defaultdict(dict)
+    latest_by_kind = {}
     for path in Path(output_dir).glob("*.jsonl"):
         match = SOURCE_FILE_PATTERN.fullmatch(path.name)
         if match:
             kind, timestamp = match.groups()
-            runs[timestamp][kind] = path
+            current = latest_by_kind.get(kind)
+            if current is None or timestamp > current[0]:
+                latest_by_kind[kind] = (timestamp, path)
     required = {
         None: ("jobs", "resumes", "pairs"),
         "jobs": ("jobs",),
         "resumes": ("jobs", "resumes"),
         "pairs": ("jobs", "resumes", "pairs"),
     }[only]
-    if only is not None:
-        selected_paths = {}
-        selected_timestamps = []
-        for kind in required:
-            candidates = [
-                (timestamp, paths[kind])
-                for timestamp, paths in runs.items()
-                if kind in paths
-            ]
-            if not candidates:
-                raise FileNotFoundError(f"No {kind} JSONL file found for {only} validation in {output_dir}")
-            timestamp, path = max(candidates, key=lambda item: item[0])
-            selected_paths[kind] = path
-            selected_timestamps.append(timestamp)
-        return {"source_timestamp": max(selected_timestamps), **selected_paths}
-
-    complete = [
-        (timestamp, paths)
-        for timestamp, paths in runs.items()
-        if all(kind in paths for kind in required)
-    ]
-    if not complete:
-        kinds = "/".join(required)
-        raise FileNotFoundError(f"No {kinds} JSONL run found for {only or 'all'} validation in {output_dir}")
-    timestamp, paths = max(complete, key=lambda item: item[0])
-    return {"source_timestamp": timestamp, **{kind: paths[kind] for kind in required}}
+    selected = {}
+    for kind in required:
+        if kind not in latest_by_kind:
+            selection = only or "all"
+            raise FileNotFoundError(f"No {kind} JSONL file found for {selection} validation in {output_dir}")
+        selected[kind] = latest_by_kind[kind]
+    source_timestamp = max(timestamp for timestamp, _ in selected.values())
+    return {
+        "source_timestamp": source_timestamp,
+        **{kind: path for kind, (_, path) in selected.items()},
+    }
 
 
 def _read_jsonl(path):

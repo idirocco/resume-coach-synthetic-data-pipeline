@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from pydantic import ValidationError
 
 from config import (
     INDUSTRIES,
@@ -18,14 +19,19 @@ from config import (
     OUTPUT_DIR,
     PROMPT_TEMPLATES,
     PROMPTS_DIR,
+    RESUME_FIT_DIRECTIVES,
     RESUME_PROMPTS_DIR,
+    RESUME_STYLE_DEFINITIONS,
     RESUME_WRITING_STYLES,
     RESUMES_PER_JOB,
     ROOT,
     TEMPERATURE,
 )
 
+from schemas import parse_resume, validation_messages
+
 FIT_LEVELS = ("excellent", "good", "partial", "poor", "complete_mismatch")
+EXPERIENCE_LEVELS = ("intern", "entry", "mid", "senior", "lead", "executive")
 
 
 def plan_batch(count, templates, industries):
@@ -218,6 +224,7 @@ def generate_only_resumes():
                     resume_template,
                     fit_level,
                     RESUME_WRITING_STYLES[index % len(RESUME_WRITING_STYLES)],
+                    index,
                 )
                 for index, fit_level in enumerate(fit_plan)
             ]
@@ -295,8 +302,8 @@ def generate_only_pairs():
 
 
 def plan_resume_fits(count):
-    if not 5 <= count <= 10:
-        raise ValueError("RESUMES_PER_JOB must be between 5 and 10")
+    # if not 5 <= count <= 10:
+    #     raise ValueError("RESUMES_PER_JOB must be between 5 and 10")
     return [FIT_LEVELS[index % len(FIT_LEVELS)] for index in range(count)]
 
 
@@ -354,18 +361,51 @@ def generate_one(client, template_name, template_text, industry):
     return None, {"error": last_error, "raw_response": raw_response}
 
 
-def render_resume_prompt(template_text, job, fit_level, writing_style):
-    required_skills = job["requirements"]["required_skills"]
+def select_resume_skills(required_skills, fit_level, resume_index=0):
+    """Pick which required skills the resume lists, rotating the start so resumes differ."""
     minimum, maximum = fit_match_bounds(len(required_skills), fit_level)
+    count = (minimum + maximum + 1) // 2
+    offset = resume_index % len(required_skills)
+    rotated = required_skills[offset:] + required_skills[:offset]
+    included = rotated[:count]
+    omitted = [skill for skill in required_skills if skill not in included]
+    return included, omitted
+
+
+def resume_experience_target(job_requirements, fit_level):
+    """Years and level the resume should show for a fit level, shifted from the job's own."""
+    _, years_factor, levels_below = RESUME_FIT_DIRECTIVES[fit_level]
+    job_index = EXPERIENCE_LEVELS.index(job_requirements["experience_level"])
+    resume_index = job_index - levels_below if job_index >= levels_below else job_index + levels_below
+    resume_index = min(resume_index, len(EXPERIENCE_LEVELS) - 1)
+    years = round(job_requirements["experience_years"] * years_factor)
+    return years, EXPERIENCE_LEVELS[resume_index]
+
+
+def render_resume_prompt(template_text, job, fit_level, writing_style, resume_index=0):
+    requirements = job["requirements"]
+    included, omitted = select_resume_skills(requirements["required_skills"], fit_level, resume_index)
+    years, level = resume_experience_target(requirements, fit_level)
+    job_view = {key: job[key] for key in ("title", "company", "requirements", "description", "responsibilities") if key in job}
     replacements = {
         "[FIT_LEVEL]": fit_level,
-        "[MIN_MATCHED_SKILLS]": str(minimum),
-        "[MAX_MATCHED_SKILLS]": str(maximum),
-        "[REQUIRED_SKILLS]": ", ".join(required_skills),
-        "[EXPERIENCE_YEARS]": str(job["requirements"]["experience_years"]),
-        "[EXPERIENCE_LEVEL]": job["requirements"]["experience_level"],
+        "[FIT_DIRECTIVE]": RESUME_FIT_DIRECTIVES[fit_level][0],
+        "[INCLUDED_SKILLS]": json.dumps(included, ensure_ascii=False),
+        "[INCLUDED_SKILL_COUNT]": str(len(included)),
+        "[OMITTED_SKILLS]": json.dumps(omitted, ensure_ascii=False),
+        "[EXTRA_SKILL_RULE]": (
+            "Add exactly 1 plausible skill unrelated to the job."
+            if fit_level == "complete_mismatch"
+            else "Add no other skills."
+        ),
+        "[EXPERIENCE_YEARS]": str(years),
+        "[EXPERIENCE_LEVEL]": level,
+        "[JOB_EXPERIENCE_YEARS]": str(requirements["experience_years"]),
+        "[JOB_EXPERIENCE_LEVEL]": requirements["experience_level"],
+        "[TODAY]": datetime.now(timezone.utc).date().isoformat(),
         "[WRITING_STYLE]": writing_style,
-        "[JOB_DESCRIPTION]": json.dumps(job, ensure_ascii=False, indent=2),
+        "[STYLE_DEFINITION]": RESUME_STYLE_DEFINITIONS[writing_style],
+        "[JOB_DESCRIPTION]": json.dumps(job_view, ensure_ascii=False, indent=2),
     }
     rendered = template_text
     for placeholder, value in replacements.items():
@@ -376,10 +416,10 @@ def render_resume_prompt(template_text, job, fit_level, writing_style):
     return rendered
 
 
-def generate_resume_one(client, job, template_text, fit_level, writing_style):
+def generate_resume_one(client, job, template_text, fit_level, writing_style, resume_index=0):
     trace_id = f"resume-{uuid.uuid4()}"
     generated_at = datetime.now(timezone.utc).isoformat()
-    prompt = render_resume_prompt(template_text, job, fit_level, writing_style)
+    prompt = render_resume_prompt(template_text, job, fit_level, writing_style, resume_index)
     messages = [{"role": "user", "content": prompt}]
     last_error = "no response"
     raw_response = ""
@@ -401,7 +441,10 @@ def generate_resume_one(client, job, template_text, fit_level, writing_style):
                 "writing_style": writing_style,
                 "job_trace_id": job["metadata"]["trace_id"],
             }
+            parse_resume(payload, required_skills=job["requirements"]["required_skills"], fit_level=fit_level)
             return payload, None
+        except ValidationError as exc:
+            last_error = "; ".join(validation_messages(exc))
         except Exception as exc:
             last_error = str(exc)
         print(f"  resume attempt {attempt} failed: {last_error}")
@@ -411,7 +454,7 @@ def generate_resume_one(client, job, template_text, fit_level, writing_style):
                 "role": "user",
                 "content": (
                     f"That response could not be used: {last_error}. Return a valid JSON object only, "
-                    "keeping the requested fit level and writing style."
+                    "keeping the requested fit level and writing style, and listing exactly the skills given in the prompt."
                 ),
             }
         )
@@ -510,6 +553,7 @@ def generate_job_descriptions(only=None):
                         resume_template,
                         fit_level,
                         writing_style,
+                        resume_index,
                     )
                 )
 

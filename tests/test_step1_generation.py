@@ -138,3 +138,37 @@ class Step1SelectionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ResumePromptTests(unittest.TestCase):
+    JOB = {
+        "title": "Data Engineer",
+        "company": {"name": "Acme"},
+        "description": "Build pipelines.",
+        "responsibilities": ["Own ETL"],
+        "requirements": {
+            "required_skills": ["Python", "SQL", "Airflow", "Spark", "dbt", "Kafka", "AWS"],
+            "experience_years": 6,
+            "experience_level": "senior",
+        },
+        "metadata": {"trace_id": "jd-1"},
+    }
+
+    def test_selected_skills_land_in_the_target_fit_band(self):
+        from schemas import fit_level_for_overlap
+        from step1_generation import FIT_LEVELS, select_resume_skills
+
+        required = self.JOB["requirements"]["required_skills"]
+        for fit_level in FIT_LEVELS:
+            for resume_index in range(len(required)):
+                included, omitted = select_resume_skills(required, fit_level, resume_index)
+                extra = 1 if fit_level == "complete_mismatch" else 0
+                self.assertEqual(fit_level_for_overlap(len(included) / (len(required) + extra)), fit_level)
+                self.assertEqual(sorted(included + omitted), sorted(required))
+
+    def test_render_fills_every_placeholder_and_hides_job_metadata(self):
+        from step1_generation import load_resume_template, render_resume_prompt
+
+        prompt = render_resume_prompt(load_resume_template(), self.JOB, "partial", "concise", 1)
+        self.assertNotIn("jd-1", prompt)
+        self.assertIn("4 years in total, at mid level", prompt)
+        self.assertIn('["SQL", "Airflow", "Spark", "dbt"]', prompt)

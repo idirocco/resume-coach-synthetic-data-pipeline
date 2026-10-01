@@ -258,14 +258,18 @@ class Step2ValidationTests(unittest.TestCase):
             1,
         )
 
-    def test_latest_run_requires_all_three_files(self):
+    def test_latest_run_selects_each_source_independently(self):
         older = "20260929T120000Z"
         for kind in ("jobs", "resumes", "pairs"):
             (self.source_dir / f"{kind}_{older}.jsonl").touch()
         newer = "20260930T130000Z"
-        (self.source_dir / f"jobs_{newer}.jsonl").touch()
+        newer_jobs = self.source_dir / f"jobs_{newer}.jsonl"
+        newer_jobs.touch()
         selected = discover_latest_run(self.source_dir)
-        self.assertEqual(selected["source_timestamp"], "20260930T120000Z")
+        self.assertEqual(selected["source_timestamp"], newer)
+        self.assertEqual(selected["jobs"], newer_jobs)
+        self.assertEqual(selected["resumes"], self.paths["resumes"])
+        self.assertEqual(selected["pairs"], self.paths["pairs"])
 
     def test_experience_years_is_limited_to_thirty(self):
         with self.assertRaises(ValidationError):

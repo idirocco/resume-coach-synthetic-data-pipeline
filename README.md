@@ -30,7 +30,7 @@ Generation uses the OpenRouter model `meta-llama/llama-3.1-8b-instruct`, configu
 
 ## Validation
 
-Step2 validates job descriptions, resumes, and pair records using Pydantic, including cross-record references and resume fit levels. Without a selector, it validates the newest timestamp for which all three source JSONL files exist. Its mutually exclusive selectors are:
+Step2 validates job descriptions, resumes, and pair records using Pydantic, including cross-record references and resume fit levels. Without a selector, it validates the newest jobs, resumes, and pairs JSONL file independently. Its mutually exclusive selectors are:
 
 - `--only-jobs` validates the newest jobs JSONL file only.
 - `--only-resumes` validates the newest jobs and resumes files; job records are checked as dependencies, but only resume results are included in the report.

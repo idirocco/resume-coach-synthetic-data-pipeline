@@ -1,52 +1,63 @@
-Generate one realistic, fully fictional resume for the supplied job description.
+You are generating one fictional candidate resume for a resume-coaching dataset. The resume is evaluated automatically against the job description at the end of this message, so follow the numbers below exactly.
 
-Target fit level: [FIT_LEVEL]
-Required skills to include: between [MIN_MATCHED_SKILLS] and [MAX_MATCHED_SKILLS] of the listed required skills, inclusive. The target is Jaccard overlap: matched normalized skills divided by the union of job-required and resume skills. Count a match only when the resume skill is the same skill after lowercasing, removing version numbers, removing a trailing .js, and stripping trailing "developer" or "engineer". To keep the overlap in range, include only the selected required skills in the skills list; do not add extra unrelated skills. For complete_mismatch, include one plausible unrelated skill and no required skills.
-Required job skills: [REQUIRED_SKILLS]
-Target experience: [EXPERIENCE_YEARS] years at [EXPERIENCE_LEVEL] level.
-Writing style: [WRITING_STYLE]
+<target>
+Fit level: [FIT_LEVEL]
+Fit meaning: [FIT_DIRECTIVE]
+Candidate experience: [EXPERIENCE_YEARS] years in total, at [EXPERIENCE_LEVEL] level. (The job asks for [JOB_EXPERIENCE_YEARS] years at [JOB_EXPERIENCE_LEVEL] level.)
+Today's date: [TODAY]
+Writing style: [WRITING_STYLE], meaning [STYLE_DEFINITION].
+</target>
 
-Use the job context to make the candidate plausible. For partial, poor, and complete_mismatch resumes, make gaps intentional but nuanced: use adjacent transferable skills and introduce a subtle seniority or experience-level mismatch without making the resume obviously incompetent. Excellent and good fits should have correspondingly stronger evidence for the job's requirements. Keep achievements credible and do not claim expertise in every skill.
+<skills>
+Job skills this resume must list, exactly [INCLUDED_SKILL_COUNT] of them, copied character for character: [INCLUDED_SKILLS]
+Job skills this resume must NOT list, and must not mention anywhere in responsibilities or achievements: [OMITTED_SKILLS]
+[EXTRA_SKILL_RULE]
+</skills>
 
-Return one JSON object only with this shape:
+Rules:
+1. Skills. The "skills" array holds the listed job skills above, spelled exactly as given, plus nothing else unless the line above says to add one. Do not rename, merge, split or add version numbers to them. Responsibilities and achievements may name only skills from the "skills" array.
+2. Skill details. Use proficiency_level Beginner, Intermediate, Advanced or Expert. Use Expert for at most 2 skills. Each skill's "years" must not exceed the candidate's total experience.
+3. Experience. Total career length is the span from the earliest start_date to today and must equal [EXPERIENCE_YEARS] years, give or take 6 months. Write 2 or 3 experience entries, newest first, with no overlapping dates. The current role omits end_date and every other role has an end_date after its start_date. Job titles must fit [EXPERIENCE_LEVEL] level. Each entry has 3 or 4 responsibilities and 2 achievements.
+4. Education. Write 1 or 2 entries. Graduation must come before the earliest job start_date, or within 4 years after it for part-time study. A gpa, if given, is between 2.5 and 4.0.
+5. Fit. Follow "Fit meaning" above. For partial, poor and complete_mismatch, show the gap through the work history and seniority, not through sloppy writing. The resume must still read like a competent person's resume.
+6. Realism. Everything is fictional: names, companies, schools and URLs. Use an example.com email, a phone of the form +1-202-555-01XX, and omit linkedin and portfolio unless you can give an example.com URL. Do not use real companies, schools or people, and do not mention age, gender, ethnicity, marital status or a photo. Invent an uncommon full name and unusual company names so that resumes for the same job do not look alike.
+7. Wording. Avoid filler such as "results-driven", "passionate", "dynamic", "synergy" and "cutting-edge". Keep every achievement believable for the candidate's years of experience.
+8. Output. Return one JSON object and nothing else: no markdown, no comments, no "metadata" key.
+
+Output shape (the values below only show the format; replace them all):
 {
   "contact_info": {
-    "name": "fictional full name",
-    "email": "fictional.address@example.com",
-    "phone": "+1-202-555-0100",
-    "location": "City, Region",
-    "linkedin": "optional fictional profile URL",
-    "portfolio": "optional fictional portfolio URL"
+    "name": "Marisol Veitch",
+    "email": "marisol.veitch@example.com",
+    "phone": "+1-202-555-0143",
+    "location": "Columbus, Ohio"
   },
   "education": [
     {
-      "degree": "degree",
-      "institution": "fictional institution",
-      "graduation_date": "YYYY-MM-DD",
-      "gpa": 3.5,
-      "coursework": ["course"]
+      "degree": "B.S. in Information Systems",
+      "institution": "Lakeshore State University",
+      "graduation_date": "2017-05-15",
+      "gpa": 3.4,
+      "coursework": ["Database Design", "Statistics"]
     }
   ],
   "experience": [
     {
-      "company": "fictional company",
-      "title": "role title",
-      "start_date": "YYYY-MM-DD",
-      "end_date": "YYYY-MM-DD or omit for current role",
-      "responsibilities": ["responsibility"],
-      "achievements": ["credible achievement"]
+      "company": "Brightwater Logistics",
+      "title": "Operations Analyst",
+      "start_date": "2021-03-01",
+      "responsibilities": ["Maintained weekly reporting for three regional depots", "Reconciled shipment records against invoices", "Trained two new analysts on the reporting workflow"],
+      "achievements": ["Cut report preparation time from 6 hours to 2 hours", "Reduced invoice mismatches by 18% over two quarters"]
     }
   ],
   "skills": [
-    {
-      "name": "skill",
-      "proficiency_level": "Beginner, Intermediate, Advanced, or Expert",
-      "years": 3
-    }
+    {"name": "SQL", "proficiency_level": "Advanced", "years": 4}
   ]
 }
+Dates are YYYY-MM-DD. "gpa", "coursework", "end_date", "linkedin" and "portfolio" may be omitted.
 
-Use ISO dates, realistic timelines, one or more education entries and experience entries, and 1-30 skills. Contact details must be fictional: use an example.com email and a reserved 202-555-01xx phone number. Optional fields may be omitted. Do not include metadata; the pipeline adds and validates it.
+Before answering, check: (a) the skills array has exactly the required names and count, (b) no omitted skill appears anywhere, (c) dates are in order and the years total matches, (d) the JSON is valid.
 
-Job description:
+<job_description>
 [JOB_DESCRIPTION]
+</job_description>
