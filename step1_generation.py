@@ -101,6 +101,199 @@ def pairs_output_path(started_at):
     return OUTPUT_DIR / f"pairs_{stamp}.jsonl"
 
 
+def load_latest_records(record_type):
+    paths = sorted(OUTPUT_DIR.glob(f"{record_type}_*.jsonl"))
+    if not paths:
+        raise SystemExit(f"Cannot generate {record_type}: no existing {record_type} JSONL file was found in {OUTPUT_DIR}.")
+    records = []
+    with paths[-1].open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                raise SystemExit(f"Invalid JSON in {paths[-1]} at line {line_number}: {exc}") from exc
+    if not records:
+        raise SystemExit(f"Cannot generate from {record_type}: latest file {paths[-1]} contains no records.")
+    return records
+
+
+def generate_only_jobs():
+    load_dotenv(ROOT / ".env")
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise SystemExit("Set OPENROUTER_API_KEY in the environment or a .env file.")
+
+    templates = load_templates()
+    batch = plan_batch(JOBS, PROMPT_TEMPLATES, INDUSTRIES)
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+    started_at = datetime.now(timezone.utc)
+    output_path = jobs_output_path(started_at)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.touch(exist_ok=True)
+    written = 0
+    failed = 0
+
+    with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_REQUESTS) as executor:
+        futures = [
+            (
+                item,
+                executor.submit(
+                    generate_one,
+                    client,
+                    item["prompt_template"],
+                    templates[item["prompt_template"]],
+                    item["industry"],
+                ),
+            )
+            for item in batch
+        ]
+        for item, future in futures:
+            payload, failure = future.result()
+            if payload is None:
+                failed += 1
+                error = failure["error"] if failure else "generation failed without error details"
+                print(f"  skipped: {error}")
+                continue
+            append_job(
+                output_path,
+                {
+                    "index": item["index"],
+                    "prompt_template": item["prompt_template"],
+                    "assigned_industry": item["industry"],
+                    "model": MODEL,
+                    "job_description": payload,
+                },
+            )
+            written += 1
+
+    print(f"Wrote {written} job descriptions to {output_path}")
+    if failed:
+        print(f"{failed} jobs could not be generated after {MAX_ATTEMPTS} attempts.")
+    return {
+        "started_at": started_at,
+        "jobs_path": output_path,
+        "resumes_path": resumes_output_path(started_at),
+        "pairs_path": pairs_output_path(started_at),
+    }
+
+
+def generate_only_resumes():
+    job_records = load_latest_records("jobs")
+    if any(not isinstance(record, dict) for record in job_records):
+        raise SystemExit("Cannot generate resumes: the latest jobs file contains a record that is not a JSON object.")
+    job_records = [record for record in job_records if isinstance(record.get("job_description"), dict)]
+    if not job_records:
+        raise SystemExit("Cannot generate resumes: the latest jobs file contains no job descriptions.")
+
+    load_dotenv(ROOT / ".env")
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise SystemExit("Set OPENROUTER_API_KEY in the environment or a .env file.")
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+    resume_template = load_resume_template()
+    fit_plan = plan_resume_fits(RESUMES_PER_JOB)
+    started_at = datetime.now(timezone.utc)
+    resume_path = resumes_output_path(started_at)
+    resume_path.parent.mkdir(parents=True, exist_ok=True)
+    resume_path.touch(exist_ok=True)
+    written = 0
+    failed = 0
+
+    with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_REQUESTS) as executor:
+        for record in job_records:
+            job = record["job_description"]
+            try:
+                render_resume_prompt(resume_template, job, fit_plan[0], RESUME_WRITING_STYLES[0])
+                job["metadata"]["trace_id"]
+            except (KeyError, TypeError) as exc:
+                print(f"  resume generation skipped: job lacks prompt fields ({exc})")
+                continue
+            futures = [
+                executor.submit(
+                    generate_resume_one,
+                    client,
+                    job,
+                    resume_template,
+                    fit_level,
+                    RESUME_WRITING_STYLES[index % len(RESUME_WRITING_STYLES)],
+                )
+                for index, fit_level in enumerate(fit_plan)
+            ]
+            for future in futures:
+                payload, failure = future.result()
+                if payload is None:
+                    failed += 1
+                    error = failure["error"] if failure else "generation failed without error details"
+                    print(f"  skipped: {error}")
+                    continue
+                append_job(resume_path, payload)
+                written += 1
+
+    print(f"Wrote {written} resumes to {resume_path}")
+    if failed:
+        print(f"{failed} resumes could not be generated after {MAX_ATTEMPTS} attempts.")
+    return {
+        "started_at": started_at,
+        "jobs_path": None,
+        "resumes_path": resume_path,
+        "pairs_path": pairs_output_path(started_at),
+    }
+
+
+def generate_only_pairs():
+    job_records = load_latest_records("jobs")
+    resume_records = load_latest_records("resumes")
+    if any(not isinstance(record, dict) for record in job_records + resume_records):
+        raise SystemExit("Cannot generate pairs: jobs and resumes must contain JSON object records.")
+    job_trace_ids = set()
+    for record in job_records:
+        job = record.get("job_description")
+        if isinstance(job, dict):
+            metadata = job.get("metadata")
+            trace_id = metadata.get("trace_id") if isinstance(metadata, dict) else None
+            if trace_id:
+                job_trace_ids.add(trace_id)
+    if not job_trace_ids:
+        raise SystemExit("Cannot generate pairs: the latest jobs file contains no job trace IDs.")
+
+    pair_metadata = []
+    for record in resume_records:
+        metadata = record.get("metadata")
+        if not isinstance(metadata, dict) or not all(
+            metadata.get(key) for key in ("job_trace_id", "trace_id", "fit_level")
+        ):
+            raise SystemExit("Cannot generate pairs: a resume is missing job_trace_id, trace_id, or fit_level metadata.")
+        if metadata["job_trace_id"] not in job_trace_ids:
+            raise SystemExit("Cannot generate pairs: the latest resumes file references jobs missing from the latest jobs file.")
+        pair_metadata.append(metadata)
+
+    started_at = datetime.now(timezone.utc)
+    pair_path = pairs_output_path(started_at)
+    pair_path.parent.mkdir(parents=True, exist_ok=True)
+    pair_path.touch(exist_ok=True)
+    for metadata in pair_metadata:
+        append_job(
+            pair_path,
+            {
+                "pair_id": uuid.uuid4().hex[:12],
+                "job_trace_id": metadata["job_trace_id"],
+                "resume_trace_id": metadata["trace_id"],
+                "fit_level": metadata["fit_level"],
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    print(f"Wrote {len(resume_records)} resume-job pairs to {pair_path}")
+    return {
+        "started_at": started_at,
+        "jobs_path": None,
+        "resumes_path": None,
+        "pairs_path": pair_path,
+    }
+
+
 def plan_resume_fits(count):
     if not 5 <= count <= 10:
         raise ValueError("RESUMES_PER_JOB must be between 5 and 10")
@@ -225,7 +418,16 @@ def generate_resume_one(client, job, template_text, fit_level, writing_style):
     return None, {"error": last_error, "raw_response": raw_response}
 
 
-def generate_job_descriptions():
+def generate_job_descriptions(only=None):
+    if only == "jobs":
+        return generate_only_jobs()
+    if only == "resumes":
+        return generate_only_resumes()
+    if only == "pairs":
+        return generate_only_pairs()
+    if only is not None:
+        raise ValueError(f"unknown generation selection: {only}")
+
     load_dotenv(ROOT / ".env")
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:

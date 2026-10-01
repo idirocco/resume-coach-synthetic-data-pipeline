@@ -30,10 +30,11 @@ def ensure_openrouter_key():
         raise SystemExit(1)
 
 
-def run_startup_checks(step="step1"):
+def run_startup_checks(step="step1", require_api_key=True):
     ensure_output_dir()
     if step in {"step1", "all"}:
         ensure_dependencies(["openai", "dotenv"])
-        ensure_openrouter_key()
+        if require_api_key:
+            ensure_openrouter_key()
     if step in {"step2", "all"}:
         ensure_dependencies(["pydantic"])
