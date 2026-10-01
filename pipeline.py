@@ -4,6 +4,7 @@
 
 import argparse
 
+from iteration_log import append_iteration_log
 from startup_checks import run_startup_checks
 
 
@@ -14,7 +15,17 @@ def parse_arguments(argv=None):
     only_group.add_argument("--only-jobs", action="store_true")
     only_group.add_argument("--only-resumes", action="store_true")
     only_group.add_argument("--only-pairs", action="store_true")
+    parser.add_argument(
+        "--log",
+        action="store_true",
+        help="Compare this validation result with the previous comparable run in iteration_log.md",
+    )
     args = parser.parse_args(argv)
+    if args.log and (
+        args.step == "step1"
+        or (args.step is None and any((args.only_jobs, args.only_resumes, args.only_pairs)))
+    ):
+        parser.error("--log requires validation; run the full pipeline or select step2")
     return args
 
 
@@ -36,7 +47,9 @@ def main(argv=None):
     if step == "step2":
         from step2_validation import validate_latest_run
 
-        validate_latest_run(only=only)
+        result = validate_latest_run(only=only)
+        if args.log:
+            append_iteration_log(result["failure_modes_path"])
         return
 
     from step1_generation import generate_job_descriptions
@@ -48,11 +61,13 @@ def main(argv=None):
     if run_complete_pipeline:
         from step2_validation import validate_run
 
-        validate_run(
+        result = validate_run(
             generated_run["jobs_path"],
             generated_run["resumes_path"],
             generated_run["pairs_path"],
         )
+        if args.log:
+            append_iteration_log(result["failure_modes_path"])
 
 
 if __name__ == "__main__":
