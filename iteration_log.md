@@ -77,3 +77,29 @@
 | After Metric | Validated 46 records: 45 valid, 1 invalid, 0 blocked (97.83% success) |
 | Delta | Not measured; no comparable pre-refactor full step2 run |
 | Keep/Revert | Keep. Full step2 now validates independently generated source stages and exceeded the 90% success-rate target |
+
+## Iteration 6
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-10-01 |
+| Component | Resume Validation |
+| Change | Added rule-based hallucination detection and awkward-language checks to the resume validation pass; invalid resumes are rejected when they oversell expertise, describe impossible timelines, or rely on buzzword-heavy AI phrasing. The default resume-generation count was also reset to 5 to match the intended fit-level matrix. |
+| Reason | The validation layer was still accepting implausible expert claims and buzzword-heavy text even though the spec explicitly calls for hallucination and awkward-language detection. |
+| Before Metric | Validated 46 records: 45 valid, 1 invalid, 0 blocked (97.83% success) |
+| After Metric | Validated 46 records: 33 valid, 7 invalid, 6 blocked (71.74% success).
+| Delta | -26.09% |
+| Keep/Revert | Keep. There's more room for improvement to reach the 90% success rate |
+
+## Iteration 7
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-10-01 |
+| Component | Resume Generation and Validation |
+| Change | Clarified that experience entries must be sequential and non-overlapping, with the prior role ending the day before a direct transition; corrected timeline validation to compare employment periods chronologically regardless of resume display order |
+| Reason | The latest report flagged six resumes for overlapping timelines, including valid newest-first histories; four remaining records have same-day end/start transitions |
+| Before Metric | Validated 46 records: 33 valid, 7 invalid, 6 blocked (71.74% success) |
+| After Metric | Validated 46 records: 37 valid, 5 invalid, 4 blocked (80.43% success) |
+| Delta | +8.69 percentage points; 4 fewer invalid records and 2 fewer blocked records |
+| Keep/Revert | Keep. Overall validation improved; remaining timeline failures reflect same-day job transitions and the 90% target is not yet met |

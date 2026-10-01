@@ -15,6 +15,8 @@ ERROR_CATEGORIES = (
     "Type mismatches",
     "Format violations",
     "Logical inconsistencies",
+    "Hallucination detection",
+    "Awkward language",
 )
 
 
@@ -104,6 +106,10 @@ def _category_for_error(error):
         or error_type == "json_decode"
     ):
         return "Format violations"
+    if error_type == "hallucination_detected":
+        return "Hallucination detection"
+    if error_type == "awkward_language_detected":
+        return "Awkward language"
     if error_type in {"job_description_rules", "value_error"} or any(
         field in location for field in ("experience_years", "gpa", "end_date", "fit_level", "trace_id")
     ):
@@ -114,6 +120,183 @@ def _category_for_error(error):
 def _field_for_error(error):
     location = error.get("loc", ())
     return ".".join(str(part) for part in location) or "<record>"
+
+
+BUZZWORD_PATTERNS = (
+    "synergy",
+    "thinking outside the box",
+    "move the needle",
+    "leverage",
+    "paradigm shift",
+    "circle back",
+    "deep dive",
+    "game changer",
+    "value proposition",
+    "thought leader",
+    "holistic",
+    "best in class",
+    "bandwidth",
+    "stakeholder management",
+    "innovation strategy",
+)
+
+
+def _resume_text(resume):
+    if hasattr(resume, "model_dump"):
+        resume = resume.model_dump()
+    if not isinstance(resume, dict):
+        return ""
+    chunks = []
+    for key in ("title", "description", "responsibilities"):
+        value = resume.get(key)
+        if isinstance(value, str):
+            chunks.append(value)
+        elif isinstance(value, list):
+            chunks.extend(str(item) for item in value if isinstance(item, str))
+    for entry in resume.get("experience", []) or []:
+        if isinstance(entry, dict):
+            for key in ("title", "responsibilities", "achievements"):
+                value = entry.get(key)
+                if isinstance(value, list):
+                    chunks.extend(str(item) for item in value if isinstance(item, str))
+                elif isinstance(value, str):
+                    chunks.append(value)
+    for skill in resume.get("skills", []) or []:
+        if isinstance(skill, dict):
+            chunks.append(str(skill.get("name", "")))
+            chunks.append(str(skill.get("proficiency_level", "")))
+    return " ".join(chunks)
+
+
+def detect_hallucination(resume):
+    if hasattr(resume, "model_dump"):
+        resume = resume.model_dump()
+    if not isinstance(resume, dict):
+        return []
+
+    issues = []
+    skills = resume.get("skills", []) or []
+    expert_count = sum(
+        1
+        for skill in skills
+        if isinstance(skill, dict) and str(skill.get("proficiency_level", "")).lower() == "expert"
+    )
+    total_skills = len(skills)
+    if total_skills >= 30 and expert_count >= max(10, total_skills // 2):
+        issues.append(
+            {
+                "type": "hallucination_detected",
+                "loc": ["skills"],
+                "msg": "Resume lists an implausibly large set of expert-level skills for one person.",
+            }
+        )
+
+    experience = resume.get("experience", []) or []
+    total_years = 0.0
+    employment_periods = []
+    for entry in experience:
+        if not isinstance(entry, dict):
+            continue
+        start = entry.get("start_date")
+        end = entry.get("end_date")
+        if start:
+            try:
+                start_date = datetime.fromisoformat(start)
+            except ValueError:
+                start_date = None
+            if start_date is not None:
+                end_date = None
+                if end:
+                    try:
+                        end_date = datetime.fromisoformat(end)
+                    except ValueError:
+                        end_date = None
+                employment_periods.append(
+                    (start_date.date(), end_date.date() if end_date else datetime.now(timezone.utc).date())
+                )
+        if end:
+            try:
+                parsed_end_date = datetime.fromisoformat(end)
+            except ValueError:
+                parsed_end_date = None
+            if parsed_end_date is not None and start and start_date is not None:
+                total_years += max(0.0, (parsed_end_date - start_date).days / 365.25)
+    if total_years < 2 and expert_count >= 10:
+        issues.append(
+            {
+                "type": "hallucination_detected",
+                "loc": ["skills"],
+                "msg": "Entry-level experience is claiming an implausibly high number of expert skills.",
+            }
+        )
+
+    employment_periods.sort(key=lambda period: period[0])
+    if any(
+        next_start <= previous_end
+        for (_, previous_end), (next_start, _) in zip(employment_periods, employment_periods[1:])
+    ):
+        issues.append(
+            {
+                "type": "hallucination_detected",
+                "loc": ["experience"],
+                "msg": "Resume shows overlapping or impossible work timelines.",
+            }
+        )
+
+    text = _resume_text(resume).lower()
+    if re.search(r"\b(?:expert|certified)\s+(?:in|across)\s+(?:all|everything|every(?:thing)?)\b", text):
+        issues.append(
+            {
+                "type": "hallucination_detected",
+                "loc": ["skills"],
+                "msg": "Resume uses absolutes like 'expert in all' or 'certified in everything'.",
+            }
+        )
+
+    return issues
+
+
+def detect_awkward_language(resume):
+    if hasattr(resume, "model_dump"):
+        resume = resume.model_dump()
+    if not isinstance(resume, dict):
+        return []
+
+    text = _resume_text(resume)
+    lowered = text.lower()
+    issues = []
+    buzzword_hits = [term for term in BUZZWORD_PATTERNS if term in lowered]
+    if buzzword_hits:
+        issues.append(
+            {
+                "type": "awkward_language_detected",
+                "loc": ["experience"],
+                "msg": "Resume contains corporate buzzwords or AI-like jargon: " + ", ".join(buzzword_hits[:5]),
+            }
+        )
+
+    words = re.findall(r"[a-zA-Z']+", lowered)
+    for index in range(len(words) - 2):
+        if words[index] == words[index + 1] == words[index + 2]:
+            issues.append(
+                {
+                    "type": "awkward_language_detected",
+                    "loc": ["experience"],
+                    "msg": "Resume repeats the same word three times in close proximity.",
+                }
+            )
+            break
+
+    if len(buzzword_hits) > 5:
+        issues.append(
+            {
+                "type": "awkward_language_detected",
+                "loc": ["experience"],
+                "msg": "Buzzword density is too high for a believable resume summary.",
+            }
+        )
+
+    return issues
 
 
 def _add_invalid(invalid, entry, record_type, errors):
@@ -345,7 +528,21 @@ def _validate_resume_entries(entries, skills_by_job_trace, invalid_job_trace_ids
             if isinstance(resume_trace_id, str):
                 invalid_resume_trace_ids.add(resume_trace_id)
         else:
-            pending_valid.append((entry, parsed.model_dump(), errors, resume_trace_id))
+            quality_errors = detect_hallucination(parsed.model_dump()) + detect_awkward_language(parsed.model_dump())
+            if quality_errors:
+                _add_invalid(
+                    invalid,
+                    entry,
+                    "resume",
+                    [
+                        {"type": issue["type"], "loc": issue.get("loc", []), "msg": issue["msg"]}
+                        for issue in quality_errors
+                    ],
+                )
+                if isinstance(resume_trace_id, str):
+                    invalid_resume_trace_ids.add(resume_trace_id)
+            else:
+                pending_valid.append((entry, parsed.model_dump(), errors, resume_trace_id))
 
     duplicate_ids = {trace_id for trace_id, rows in resume_trace_entries.items() if len(rows) > 1}
     for entry, parsed_resume, errors, trace_id in pending_valid:

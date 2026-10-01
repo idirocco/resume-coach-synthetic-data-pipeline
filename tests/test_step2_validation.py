@@ -11,7 +11,13 @@ from pipeline import main, parse_arguments
 from schemas import Requirements, ResumeJobPair
 from step1_generation import generate_one
 from startup_checks import run_startup_checks
-from step2_validation import _category_for_error, discover_latest_run, validate_run
+from step2_validation import (
+    _category_for_error,
+    detect_awkward_language,
+    detect_hallucination,
+    discover_latest_run,
+    validate_run,
+)
 
 GENERATED_AT = "2026-09-30T12:00:00+00:00"
 REQUIRED_SKILLS = ["Python", "SQL", "Git", "Docker", "Linux"]
@@ -293,10 +299,49 @@ class Step2ValidationTests(unittest.TestCase):
             ({"type": "string_type", "loc": ["skills", 0, "proficiency_level"], "msg": "Expected string"}, "Type mismatches"),
             ({"type": "value_error", "loc": ["contact_info"], "msg": "email must be a valid email address"}, "Format violations"),
             ({"type": "value_error", "loc": ["experience", 0], "msg": "end_date must be after start_date"}, "Logical inconsistencies"),
+            ({"type": "hallucination_detected", "loc": ["skills"], "msg": "expert in all"}, "Hallucination detection"),
+            ({"type": "awkward_language_detected", "loc": ["experience", 0], "msg": "move the needle"}, "Awkward language"),
         ]
         for error, expected in errors:
             with self.subTest(expected=expected):
                 self.assertEqual(_category_for_error(error), expected)
+
+    def test_hallucination_detection_flags_expert_oversell(self):
+        resume = make_resume()
+        resume["experience"][0]["start_date"] = "2025-01-01"
+        resume["experience"][0]["end_date"] = "2025-12-01"
+        resume["skills"] = [
+            {"name": f"Skill {index}", "proficiency_level": "Expert", "years": 1}
+            for index in range(11)
+        ]
+        issues = detect_hallucination(resume)
+        self.assertTrue(issues)
+        self.assertEqual(issues[0]["type"], "hallucination_detected")
+
+    def test_hallucination_detection_checks_chronological_employment_overlap(self):
+        resume = make_resume()
+        resume["experience"] = [
+            {"start_date": "2024-04-01"},
+            {"start_date": "2023-02-01", "end_date": "2024-03-31"},
+            {"start_date": "2022-10-01", "end_date": "2023-01-31"},
+        ]
+        self.assertFalse(detect_hallucination(resume))
+
+        resume["experience"][1]["end_date"] = "2024-04-15"
+        issues = detect_hallucination(resume)
+        self.assertTrue(any(issue["loc"] == ["experience"] for issue in issues))
+
+    def test_awkward_language_detection_flags_buzzwords(self):
+        resume = make_resume()
+        resume["experience"][0]["responsibilities"] = [
+            "Drive synergy across teams",
+            "Move the needle on platform strategy",
+            "Think outside the box for innovation",
+            "synergy synergy synergy",
+        ]
+        issues = detect_awkward_language(resume)
+        self.assertTrue(issues)
+        self.assertEqual(issues[0]["type"], "awkward_language_detected")
 
     def test_malformed_json_line_is_preserved_as_invalid(self):
         with self.paths["jobs"].open("a", encoding="utf-8") as handle:

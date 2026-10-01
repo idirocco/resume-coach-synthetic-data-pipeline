@@ -17,7 +17,7 @@ Job skills this resume must NOT list, and must not mention anywhere in responsib
 Rules:
 1. Skills. The "skills" array holds the listed job skills above, spelled exactly as given, plus nothing else unless the line above says to add one. Do not rename, merge, split or add version numbers to them. Responsibilities and achievements may name only skills from the "skills" array.
 2. Skill details. Use proficiency_level Beginner, Intermediate, Advanced or Expert. Use Expert for at most 2 skills. Each skill's "years" must not exceed the candidate's total experience.
-3. Experience. Total career length is the span from the earliest start_date to today and must equal [EXPERIENCE_YEARS] years, give or take 6 months. Write 2 or 3 experience entries, newest first, with no overlapping dates. The current role omits end_date and every other role has an end_date after its start_date. Job titles must fit [EXPERIENCE_LEVEL] level. Each entry has 3 or 4 responsibilities and 2 achievements.
+3. Experience. Total career length is the span from the earliest start_date to today and must equal [EXPERIENCE_YEARS] years, give or take 6 months. Write 2 or 3 experience entries, newest first, with the current role first. Roles must be sequential, never concurrent: for every adjacent pair, the older role's end_date must be earlier than the newer role's start_date. Treat end_date as the last day worked; for a direct transition, set it to the calendar day before the newer role's start_date. Gaps between roles are allowed, but do not duplicate or overlap employment dates. The current role omits end_date and every other role has an end_date after its start_date. Use YYYY-MM-DD dates. Job titles must fit [EXPERIENCE_LEVEL] level. Each entry has 3 or 4 responsibilities and 2 achievements.
 4. Education. Write 1 or 2 entries. Graduation must come before the earliest job start_date, or within 4 years after it for part-time study. A gpa, if given, is between 2.5 and 4.0.
 5. Fit. Follow "Fit meaning" above. For partial, poor and complete_mismatch, show the gap through the work history and seniority, not through sloppy writing. The resume must still read like a competent person's resume.
 6. Realism. Everything is fictional: names, companies, schools and URLs. Use an example.com email, a phone of the form +1-202-555-01XX, and omit linkedin and portfolio unless you can give an example.com URL. Do not use real companies, schools or people, and do not mention age, gender, ethnicity, marital status or a photo. Invent an uncommon full name and unusual company names so that resumes for the same job do not look alike.
@@ -56,7 +56,7 @@ Output shape (the values below only show the format; replace them all):
 }
 Dates are YYYY-MM-DD. "gpa", "coursework", "end_date", "linkedin" and "portfolio" may be omitted.
 
-Before answering, check: (a) the skills array has exactly the required names and count, (b) no omitted skill appears anywhere, (c) dates are in order and the years total matches, (d) the JSON is valid.
+Before answering, check: (a) the skills array has exactly the required names and count, (b) no omitted skill appears anywhere, (c) experience is newest-first and every older role ends before the next newer role starts, with valid YYYY-MM-DD dates and the requested total career span, (d) the JSON is valid.
 
 <job_description>
 [JOB_DESCRIPTION]
