@@ -4,7 +4,11 @@ ROOT = Path(__file__).resolve().parent
 
 # Total job descriptions for step 1. Templates and industries are cycled so both are used evenly.
 JOBS = 10
-RESUMES_PER_JOB = 2
+RESUMES_PER_JOB = 5
+# The first CORE_SKILL_COUNT required skills are the job's core skills. Fits in CORE_SKILL_FIT_LEVELS always
+# include them (step 1); step 3 flags any pair missing one of them.
+CORE_SKILL_COUNT = 3
+CORE_SKILL_FIT_LEVELS = ("excellent", "good")
 RESUME_WRITING_STYLES = ["concise", "metrics-driven", "technical", "narrative", "understated"]
 RESUME_STYLE_DEFINITIONS = {
     "concise": "short, plain bullets of 8-14 words; no adjectives that are not facts",

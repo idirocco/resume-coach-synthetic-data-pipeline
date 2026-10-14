@@ -38,3 +38,6 @@ def run_startup_checks(step="step1", require_api_key=True):
             ensure_openrouter_key()
     if step in {"step2", "all"}:
         ensure_dependencies(["pydantic"])
+    if step == "correct":
+        ensure_dependencies(["openai", "dotenv", "pydantic"])
+        ensure_openrouter_key()

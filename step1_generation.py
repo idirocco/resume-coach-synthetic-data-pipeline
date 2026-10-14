@@ -11,6 +11,8 @@ from openai import OpenAI
 from pydantic import ValidationError
 
 from config import (
+    CORE_SKILL_COUNT,
+    CORE_SKILL_FIT_LEVELS,
     INDUSTRIES,
     MAX_CONCURRENT_REQUESTS,
     MAX_ATTEMPTS,
@@ -28,7 +30,9 @@ from config import (
     TEMPERATURE,
 )
 
+from correction import build_correction_prompt, error_context
 from schemas import parse_resume, validation_messages
+from step2_validation import _validation_errors
 
 FIT_LEVELS = ("excellent", "good", "partial", "poor", "complete_mismatch")
 EXPERIENCE_LEVELS = ("intern", "entry", "mid", "senior", "lead", "executive")
@@ -349,25 +353,25 @@ def generate_one(client, template_name, template_text, industry):
             last_error = str(exc)
         print(f"  attempt {attempt} failed: {last_error}")
         messages.append({"role": "assistant", "content": raw_response})
+        errors = [{"type": "json_decode", "loc": [], "msg": last_error}]
         messages.append(
-            {
-                "role": "user",
-                "content": (
-                    f"That response could not be used: {last_error}. "
-                    "Return a valid JSON object only."
-                ),
-            }
+            {"role": "user", "content": build_correction_prompt(error_context(errors, raw_response), raw_response)}
         )
     return None, {"error": last_error, "raw_response": raw_response}
 
 
 def select_resume_skills(required_skills, fit_level, resume_index=0):
-    """Pick which required skills the resume lists, rotating the start so resumes differ."""
+    """Pick which required skills the resume lists, rotating the start so resumes differ.
+
+    Excellent and good fits always keep the core skills and only rotate which of the others they omit.
+    """
     minimum, maximum = fit_match_bounds(len(required_skills), fit_level)
     count = (minimum + maximum + 1) // 2
-    offset = resume_index % len(required_skills)
-    rotated = required_skills[offset:] + required_skills[:offset]
-    included = rotated[:count]
+    core = required_skills[:CORE_SKILL_COUNT] if fit_level in CORE_SKILL_FIT_LEVELS and count >= CORE_SKILL_COUNT else []
+    pool = required_skills[len(core):]
+    offset = resume_index % len(pool) if pool else 0
+    rotated = pool[offset:] + pool[:offset]
+    included = core + rotated[: count - len(core)]
     omitted = [skill for skill in required_skills if skill not in included]
     return included, omitted
 
@@ -423,7 +427,9 @@ def generate_resume_one(client, job, template_text, fit_level, writing_style, re
     messages = [{"role": "user", "content": prompt}]
     last_error = "no response"
     raw_response = ""
+    correction_context = {"required_skills": job["requirements"]["required_skills"], "fit_level": fit_level}
     for attempt in range(1, MAX_ATTEMPTS + 1):
+        payload = None
         try:
             response = client.chat.completions.create(
                 model=MODEL,
@@ -445,16 +451,21 @@ def generate_resume_one(client, job, template_text, fit_level, writing_style, re
             return payload, None
         except ValidationError as exc:
             last_error = "; ".join(validation_messages(exc))
+            errors = _validation_errors(exc)
         except Exception as exc:
             last_error = str(exc)
+            errors = [{"type": "json_decode", "loc": [], "msg": last_error}]
+            payload = None
         print(f"  resume attempt {attempt} failed: {last_error}")
         messages.append({"role": "assistant", "content": raw_response})
+        data = payload if payload is not None else raw_response
         messages.append(
             {
                 "role": "user",
-                "content": (
-                    f"That response could not be used: {last_error}. Return a valid JSON object only, "
-                    "keeping the requested fit level and writing style, and listing exactly the skills given in the prompt."
+                "content": build_correction_prompt(
+                    error_context(errors, data, correction_context),
+                    data,
+                    "Keep the requested fit level and writing style, and list exactly the skills given in the prompt.",
                 ),
             }
         )

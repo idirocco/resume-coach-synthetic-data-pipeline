@@ -7,17 +7,23 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from config import OUTPUT_DIR
-from schemas import ResumeJobPair, parse_job_description, parse_resume
+from resume_metrics import awkward_language_reasons, hallucination_reasons, jaccard
+from schemas import ResumeJobPair, fit_level_for_overlap, parse_job_description, parse_resume
 
 SOURCE_FILE_PATTERN = re.compile(r"^(jobs|resumes|pairs)_(\d{8}T\d{6}Z)\.jsonl$")
+# Schema failures reject a record. Quality warnings are recorded on otherwise valid resumes
+# and analyzed in step 3; they do not count against the success rate.
 ERROR_CATEGORIES = (
     "Missing required fields",
     "Type mismatches",
     "Format violations",
     "Logical inconsistencies",
+)
+WARNING_CATEGORIES = (
     "Hallucination detection",
     "Awkward language",
 )
+MAX_ERROR_INPUT_CHARS = 300
 
 
 def discover_latest_run(output_dir=OUTPUT_DIR, only=None):
@@ -74,15 +80,52 @@ def _read_jsonl(path):
     return entries
 
 
+def _json_safe(value):
+    """Round-trip through JSON so error input/ctx can be written; long values are cut."""
+    text = json.dumps(value, ensure_ascii=False, default=str)
+    if len(text) > MAX_ERROR_INPUT_CHARS:
+        return text[:MAX_ERROR_INPUT_CHARS] + "..."
+    return json.loads(text)
+
+
+_MESSAGE_FIELD = re.compile(r"^(?:value error, )?([a-z_]+(?:\.[a-z_]+)*) (?:must|is|does)\b")
+
+
+def _refined_loc(loc, message):
+    """Point model-level errors at the field their message names (e.g. experience.0 -> experience.0.end_date)."""
+    lowered = message.lower()
+    if "required-skill overlap" in lowered:
+        return [*loc, "metadata", "fit_level"]
+    match = _MESSAGE_FIELD.match(lowered)
+    if match:
+        named = match.group(1).split(".")
+        if [str(part) for part in loc[-len(named):]] != named:
+            return [*loc, *named]
+    return list(loc)
+
+
 def _validation_errors(exc, prefix=()):
-    return [
-        {
+    errors = []
+    for error in exc.errors():
+        loc = [*prefix, *error["loc"]]
+        ctx = error.get("ctx") or {}
+        if error["type"] == "job_description_rules" and ctx.get("problems"):
+            for problem in ctx["problems"]:
+                field = [] if problem["field"] == "<record>" else problem["field"].split(".")
+                errors.append({"type": error["type"], "loc": [*loc, *field], "msg": problem["msg"]})
+            continue
+        detail = {
             "type": error["type"],
-            "loc": [*prefix, *error["loc"]],
+            "loc": _refined_loc(loc, error["msg"]) if error["type"] == "value_error" else loc,
             "msg": error["msg"],
         }
-        for error in exc.errors()
-    ]
+        if "input" in error:
+            detail["input"] = _json_safe(error["input"])
+        safe_ctx = {key: value for key, value in ctx.items() if key != "error"}
+        if safe_ctx:
+            detail["ctx"] = _json_safe(safe_ctx)
+        errors.append(detail)
+    return errors
 
 
 def _category_for_error(error):
@@ -98,9 +141,9 @@ def _category_for_error(error):
         "extra_forbidden",
     }:
         return "Type mismatches"
+    # Format is judged by the message, not the location: "end_date must be after start_date" is a logic error.
     if (
         "email" in location
-        or "date" in location
         or "iso" in message
         or "valid email" in message
         or error_type == "json_decode"
@@ -110,198 +153,52 @@ def _category_for_error(error):
         return "Hallucination detection"
     if error_type == "awkward_language_detected":
         return "Awkward language"
-    if error_type in {"job_description_rules", "value_error"} or any(
-        field in location for field in ("experience_years", "gpa", "end_date", "fit_level", "trace_id")
-    ):
-        return "Logical inconsistencies"
     return "Logical inconsistencies"
 
 
+def field_pattern(loc):
+    """Field path with list positions collapsed: ["experience", 0, "end_date"] -> "experience[].end_date"."""
+    parts = []
+    for part in loc or ():
+        if isinstance(part, int) or (isinstance(part, str) and part.isdigit()):
+            if parts:
+                parts[-1] = f"{parts[-1]}[]"
+        else:
+            parts.append(str(part))
+    return ".".join(parts) or "<record>"
+
+
 def _field_for_error(error):
-    location = error.get("loc", ())
-    return ".".join(str(part) for part in location) or "<record>"
-
-
-BUZZWORD_PATTERNS = (
-    "synergy",
-    "thinking outside the box",
-    "move the needle",
-    "leverage",
-    "paradigm shift",
-    "circle back",
-    "deep dive",
-    "game changer",
-    "value proposition",
-    "thought leader",
-    "holistic",
-    "best in class",
-    "bandwidth",
-    "stakeholder management",
-    "innovation strategy",
-)
-
-
-def _resume_text(resume):
-    if hasattr(resume, "model_dump"):
-        resume = resume.model_dump()
-    if not isinstance(resume, dict):
-        return ""
-    chunks = []
-    for key in ("title", "description", "responsibilities"):
-        value = resume.get(key)
-        if isinstance(value, str):
-            chunks.append(value)
-        elif isinstance(value, list):
-            chunks.extend(str(item) for item in value if isinstance(item, str))
-    for entry in resume.get("experience", []) or []:
-        if isinstance(entry, dict):
-            for key in ("title", "responsibilities", "achievements"):
-                value = entry.get(key)
-                if isinstance(value, list):
-                    chunks.extend(str(item) for item in value if isinstance(item, str))
-                elif isinstance(value, str):
-                    chunks.append(value)
-    for skill in resume.get("skills", []) or []:
-        if isinstance(skill, dict):
-            chunks.append(str(skill.get("name", "")))
-            chunks.append(str(skill.get("proficiency_level", "")))
-    return " ".join(chunks)
+    return field_pattern(error.get("loc", ()))
 
 
 def detect_hallucination(resume):
+    """Hallucination warnings for a resume, in step 2's error shape."""
     if hasattr(resume, "model_dump"):
         resume = resume.model_dump()
     if not isinstance(resume, dict):
         return []
-
-    issues = []
-    skills = resume.get("skills", []) or []
-    expert_count = sum(
-        1
-        for skill in skills
-        if isinstance(skill, dict) and str(skill.get("proficiency_level", "")).lower() == "expert"
-    )
-    total_skills = len(skills)
-    if total_skills >= 30 and expert_count >= max(10, total_skills // 2):
-        issues.append(
-            {
-                "type": "hallucination_detected",
-                "loc": ["skills"],
-                "msg": "Resume lists an implausibly large set of expert-level skills for one person.",
-            }
-        )
-
-    experience = resume.get("experience", []) or []
-    total_years = 0.0
-    employment_periods = []
-    for entry in experience:
-        if not isinstance(entry, dict):
-            continue
-        start = entry.get("start_date")
-        end = entry.get("end_date")
-        if start:
-            try:
-                start_date = datetime.fromisoformat(start)
-            except ValueError:
-                start_date = None
-            if start_date is not None:
-                end_date = None
-                if end:
-                    try:
-                        end_date = datetime.fromisoformat(end)
-                    except ValueError:
-                        end_date = None
-                employment_periods.append(
-                    (start_date.date(), end_date.date() if end_date else datetime.now(timezone.utc).date())
-                )
-        if end:
-            try:
-                parsed_end_date = datetime.fromisoformat(end)
-            except ValueError:
-                parsed_end_date = None
-            if parsed_end_date is not None and start and start_date is not None:
-                total_years += max(0.0, (parsed_end_date - start_date).days / 365.25)
-    if total_years < 2 and expert_count >= 10:
-        issues.append(
-            {
-                "type": "hallucination_detected",
-                "loc": ["skills"],
-                "msg": "Entry-level experience is claiming an implausibly high number of expert skills.",
-            }
-        )
-
-    employment_periods.sort(key=lambda period: period[0])
-    if any(
-        next_start <= previous_end
-        for (_, previous_end), (next_start, _) in zip(employment_periods, employment_periods[1:])
-    ):
-        issues.append(
-            {
-                "type": "hallucination_detected",
-                "loc": ["experience"],
-                "msg": "Resume shows overlapping or impossible work timelines.",
-            }
-        )
-
-    text = _resume_text(resume).lower()
-    if re.search(r"\b(?:expert|certified)\s+(?:in|across)\s+(?:all|everything|every(?:thing)?)\b", text):
-        issues.append(
-            {
-                "type": "hallucination_detected",
-                "loc": ["skills"],
-                "msg": "Resume uses absolutes like 'expert in all' or 'certified in everything'.",
-            }
-        )
-
-    return issues
+    return [
+        {"type": "hallucination_detected", "code": reason["code"], "loc": reason["loc"], "msg": reason["msg"]}
+        for reason in hallucination_reasons(resume)
+    ]
 
 
 def detect_awkward_language(resume):
+    """Awkward-language warnings for a resume, in step 2's error shape."""
     if hasattr(resume, "model_dump"):
         resume = resume.model_dump()
     if not isinstance(resume, dict):
         return []
-
-    text = _resume_text(resume)
-    lowered = text.lower()
-    issues = []
-    buzzword_hits = [term for term in BUZZWORD_PATTERNS if term in lowered]
-    if buzzword_hits:
-        issues.append(
-            {
-                "type": "awkward_language_detected",
-                "loc": ["experience"],
-                "msg": "Resume contains corporate buzzwords or AI-like jargon: " + ", ".join(buzzword_hits[:5]),
-            }
-        )
-
-    words = re.findall(r"[a-zA-Z']+", lowered)
-    for index in range(len(words) - 2):
-        if words[index] == words[index + 1] == words[index + 2]:
-            issues.append(
-                {
-                    "type": "awkward_language_detected",
-                    "loc": ["experience"],
-                    "msg": "Resume repeats the same word three times in close proximity.",
-                }
-            )
-            break
-
-    if len(buzzword_hits) > 5:
-        issues.append(
-            {
-                "type": "awkward_language_detected",
-                "loc": ["experience"],
-                "msg": "Buzzword density is too high for a believable resume summary.",
-            }
-        )
-
-    return issues
+    return [
+        {"type": "awkward_language_detected", "code": reason["code"], "loc": reason["loc"], "msg": reason["msg"]}
+        for reason in awkward_language_reasons(resume)
+    ]
 
 
 def _add_invalid(invalid, entry, record_type, errors):
     categorized_errors = [
-        {**error, "category": _category_for_error(error)} for error in errors
+        {**error, "category": _category_for_error(error), "field": _field_for_error(error)} for error in errors
     ]
     category_order = {category: index for index, category in enumerate(ERROR_CATEGORIES)}
     primary_category = min(
@@ -337,15 +234,16 @@ def _add_blocked(blocked, entry, record_type, reason, blocked_by):
     )
 
 
-def _valid_record(valid, entry, record_type, data):
-    valid.append(
-        {
-            "record_type": record_type,
-            "source_file": entry["source_file"],
-            "line_number": entry["line_number"],
-            "data": data,
-        }
-    )
+def _valid_record(valid, entry, record_type, data, warnings=None):
+    record = {
+        "record_type": record_type,
+        "source_file": entry["source_file"],
+        "line_number": entry["line_number"],
+        "data": data,
+    }
+    if warnings:
+        record["warnings"] = warnings
+    valid.append(record)
 
 
 def _job_parts(row):
@@ -528,21 +426,7 @@ def _validate_resume_entries(entries, skills_by_job_trace, invalid_job_trace_ids
             if isinstance(resume_trace_id, str):
                 invalid_resume_trace_ids.add(resume_trace_id)
         else:
-            quality_errors = detect_hallucination(parsed.model_dump()) + detect_awkward_language(parsed.model_dump())
-            if quality_errors:
-                _add_invalid(
-                    invalid,
-                    entry,
-                    "resume",
-                    [
-                        {"type": issue["type"], "loc": issue.get("loc", []), "msg": issue["msg"]}
-                        for issue in quality_errors
-                    ],
-                )
-                if isinstance(resume_trace_id, str):
-                    invalid_resume_trace_ids.add(resume_trace_id)
-            else:
-                pending_valid.append((entry, parsed.model_dump(), errors, resume_trace_id))
+            pending_valid.append((entry, parsed.model_dump(), errors, resume_trace_id))
 
     duplicate_ids = {trace_id for trace_id, rows in resume_trace_entries.items() if len(rows) > 1}
     for entry, parsed_resume, errors, trace_id in pending_valid:
@@ -564,7 +448,11 @@ def _validate_resume_entries(entries, skills_by_job_trace, invalid_job_trace_ids
         elif errors:
             _add_invalid(invalid, entry, "resume", errors)
         else:
-            _valid_record(valid, entry, "resume", parsed_resume)
+            warnings = [
+                {**issue, "category": _category_for_error(issue), "field": _field_for_error(issue)}
+                for issue in detect_hallucination(parsed_resume) + detect_awkward_language(parsed_resume)
+            ]
+            _valid_record(valid, entry, "resume", parsed_resume, warnings)
             resumes_by_trace[trace_id] = parsed_resume
     for entry, parsed_resume, trace_id, job_trace_id in pending_blocked:
         if trace_id in duplicate_ids:
@@ -608,7 +496,10 @@ def _validate_pair_entries(
     invalid_job_trace_ids,
     invalid_resume_trace_ids,
     blocked_resume_trace_ids,
+    outcomes=None,
 ):
+    """Validate pairs; when given, outcomes collects (pair, status, detail) for pairs whose ids parsed."""
+    outcomes = [] if outcomes is None else outcomes
     for entry in entries:
         if entry["errors"]:
             _add_invalid(invalid, entry, "pair", entry["errors"])
@@ -635,6 +526,7 @@ def _validate_pair_entries(
                 "pair references a job or resume that failed validation",
                 blocked_by,
             )
+            outcomes.append((pair.model_dump(), "blocked", blocked_by))
             continue
 
         errors = []
@@ -652,8 +544,91 @@ def _validate_pair_entries(
                 errors.append({"type": "value_error", "loc": ["fit_level"], "msg": "pair fit_level does not match the resume"})
         if errors:
             _add_invalid(invalid, entry, "pair", errors)
+            outcomes.append((pair.model_dump(), "invalid", errors))
         else:
             _valid_record(valid, entry, "pair", pair.model_dump())
+            outcomes.append((pair.model_dump(), "valid", None))
+
+
+def _trace_id_of(record):
+    """Trace id of an invalid job/resume record, read back from its raw line when it parsed."""
+    try:
+        data = json.loads(record["raw_record"])
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    if record["record_type"] == "job":
+        data = data.get("job_description")
+        if not isinstance(data, dict):
+            return None
+    metadata = data.get("metadata")
+    return metadata.get("trace_id") if isinstance(metadata, dict) else None
+
+
+def _enriched_pairs(pair_outcomes, job_valid, job_invalid, resume_valid, resume_invalid):
+    """One row per pair with the validated job and resume joined in, for step 3."""
+    jobs = {
+        record["data"]["job_description"]["metadata"]["trace_id"]: record["data"]
+        for record in job_valid
+        if record["record_type"] == "job"
+    }
+    resumes = {
+        record["data"]["metadata"]["trace_id"]: record
+        for record in resume_valid
+        if record["record_type"] == "resume"
+    }
+    failed_categories = {}
+    for record in [*job_invalid, *resume_invalid]:
+        trace_id = _trace_id_of(record)
+        if trace_id is not None:
+            failed_categories[(record["record_type"], trace_id)] = sorted(
+                {error["category"] for error in record["errors"]}
+            )
+    rows = []
+    for pair, status, detail in pair_outcomes:
+        job_row = jobs.get(pair["job_trace_id"])
+        resume_record = resumes.get(pair["resume_trace_id"])
+        if status == "blocked":
+            categories = sorted(
+                {
+                    category
+                    for blocker in detail
+                    for category in failed_categories.get((blocker["record_type"], blocker["trace_id"]), [])
+                }
+            )
+        elif status == "invalid":
+            categories = sorted({_category_for_error(error) for error in detail})
+        else:
+            categories = []
+        row = {
+            **pair,
+            "validation_status": status,
+            "validation_categories": categories,
+            "job": None,
+            "resume": None,
+            "resume_warnings": [],
+            "skills_jaccard": None,
+            "actual_fit_level": None,
+        }
+        if job_row is not None:
+            row["job"] = {
+                "prompt_template": job_row.get("prompt_template"),
+                "assigned_industry": job_row.get("assigned_industry"),
+                "job_description": job_row["job_description"],
+            }
+        if resume_record is not None:
+            row["resume"] = resume_record["data"]
+            row["resume_warnings"] = resume_record.get("warnings", [])
+        if job_row is not None and resume_record is not None:
+            overlap = jaccard(
+                job_row["job_description"]["requirements"]["required_skills"],
+                [skill["name"] for skill in resume_record["data"]["skills"]],
+            )["score"]
+            row["skills_jaccard"] = round(overlap, 4)
+            row["actual_fit_level"] = fit_level_for_overlap(overlap)
+        rows.append(row)
+    return rows
 
 
 def _failure_report(valid, invalid, blocked, source_files, validation_timestamp):
@@ -666,6 +641,20 @@ def _failure_report(valid, invalid, blocked, source_files, validation_timestamp)
         for error in record["errors"]:
             if error["category"] == record["category"]:
                 category_fields[record["category"]][_field_for_error(error)] += 1
+    field_category_counts = defaultdict(Counter)
+    for record in invalid:
+        for error in record["errors"]:
+            field_category_counts[f"{record['record_type']}.{error['field']}"][error["category"]] += 1
+    warning_counts = Counter()
+    warning_codes = defaultdict(Counter)
+    warning_records = 0
+    for record in valid:
+        if record.get("warnings"):
+            warning_records += 1
+            for category in {warning["category"] for warning in record["warnings"]}:
+                warning_counts[category] += 1
+            for warning in record["warnings"]:
+                warning_codes[warning["category"]][warning.get("code", warning["type"])] += 1
     categories = {}
     for category in ERROR_CATEGORIES:
         count = category_counts[category]
@@ -685,8 +674,16 @@ def _failure_report(valid, invalid, blocked, source_files, validation_timestamp)
             "blocked_records": blocked_count,
             "success_rate_percent": round((100 * len(valid) / total), 2) if total else 0.0,
             "success_rate_target_percent": 90,
+            "records_with_warnings": warning_records,
         },
         "categories": categories,
+        "warnings": {
+            category: {"records": warning_counts[category], "codes": dict(warning_codes[category])}
+            for category in WARNING_CATEGORIES
+        },
+        "field_category_counts": {
+            field: dict(counts) for field, counts in sorted(field_category_counts.items())
+        },
         "invalid_records": invalid,
         "blocked_records": blocked,
     }
@@ -726,6 +723,9 @@ def validate_run(jobs_path=None, resumes_path=None, pairs_path=None, output_dir=
     resumes_by_trace = {}
     invalid_resume_trace_ids = set()
     blocked_resume_trace_ids = set()
+    resume_valid = []
+    resume_invalid = []
+    pair_outcomes = []
     if "resumes" in source_files:
         resume_valid = valid if only in {None, "resumes"} else []
         resume_invalid = invalid if only in {None, "resumes"} else []
@@ -749,6 +749,7 @@ def validate_run(jobs_path=None, resumes_path=None, pairs_path=None, output_dir=
             invalid_job_trace_ids,
             invalid_resume_trace_ids,
             blocked_resume_trace_ids,
+            pair_outcomes,
         )
 
     validation_timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -764,6 +765,13 @@ def validate_run(jobs_path=None, resumes_path=None, pairs_path=None, output_dir=
         for record in invalid:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
     failure_modes_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    enriched_path = None
+    if "pairs" in source_files and only in {None, "pairs"}:
+        enriched_path = output_dir / f"pairs_enriched_{validation_timestamp}.jsonl"
+        rows = _enriched_pairs(pair_outcomes, job_valid, job_invalid, resume_valid, resume_invalid)
+        with enriched_path.open("w", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     print(
         f"Validated {report['summary']['total_records']} records: "
@@ -774,10 +782,13 @@ def validate_run(jobs_path=None, resumes_path=None, pairs_path=None, output_dir=
     print(f"Wrote validated records to {validated_path}")
     print(f"Wrote invalid records to {invalid_path}")
     print(f"Wrote failure analysis to {failure_modes_path}")
+    if enriched_path is not None:
+        print(f"Wrote joined pairs to {enriched_path}")
     return {
         "validated_path": validated_path,
         "invalid_path": invalid_path,
         "failure_modes_path": failure_modes_path,
+        "enriched_path": enriched_path,
         "report": report,
     }
 

@@ -16,6 +16,7 @@ from step2_validation import (
     detect_awkward_language,
     detect_hallucination,
     discover_latest_run,
+    field_pattern,
     validate_run,
 )
 
@@ -343,6 +344,75 @@ class Step2ValidationTests(unittest.TestCase):
         self.assertTrue(issues)
         self.assertEqual(issues[0]["type"], "awkward_language_detected")
 
+    def test_same_day_job_transition_is_not_an_overlap(self):
+        resume = make_resume()
+        resume["experience"] = [
+            {"start_date": "2022-10-01", "end_date": "2025-10-01"},
+            {"start_date": "2025-10-01"},
+        ]
+        self.assertFalse(detect_hallucination(resume))
+
+    def test_quality_issues_are_warnings_not_rejections(self):
+        resume = make_resume()
+        resume["experience"][0]["responsibilities"] = ["Reviewed reviewed reviewed reports"]
+        self.write_records(resume=resume)
+        result = validate_run(self.paths["jobs"], self.paths["resumes"], self.paths["pairs"], self.output_dir)
+        summary = result["report"]["summary"]
+        self.assertEqual(summary["invalid_records"], 0)
+        self.assertEqual(summary["records_with_warnings"], 1)
+        self.assertEqual(result["report"]["warnings"]["Awkward language"]["codes"], {"repetition": 1})
+        validated = json.loads(result["validated_path"].read_text(encoding="utf-8"))
+        resume_record = next(record for record in validated if record["record_type"] == "resume")
+        self.assertEqual(resume_record["warnings"][0]["category"], "Awkward language")
+
+    def test_job_rule_problems_are_split_per_field(self):
+        job = make_job()
+        job["job_description"]["company"]["size"] = "1-10"
+        job["job_description"]["requirements"]["experience_years"] = 9
+        self.write_records(job=job)
+        result = validate_run(self.paths["jobs"], self.paths["resumes"], self.paths["pairs"], self.output_dir)
+        job_failure = next(record for record in result["report"]["invalid_records"] if record["record_type"] == "job")
+        self.assertEqual(
+            {error["field"] for error in job_failure["errors"]},
+            {"job_description.company.size", "job_description.requirements.experience_years"},
+        )
+        self.assertIn("job.job_description.company.size", result["report"]["field_category_counts"])
+
+    def test_model_level_errors_point_at_the_named_field(self):
+        resume = make_resume()
+        resume["experience"][0]["end_date"] = "2020-01-01"
+        self.write_records(resume=resume)
+        result = validate_run(self.paths["jobs"], self.paths["resumes"], self.paths["pairs"], self.output_dir)
+        resume_failure = next(record for record in result["report"]["invalid_records"] if record["record_type"] == "resume")
+        self.assertEqual(resume_failure["field"], "experience[].end_date")
+        self.assertEqual(resume_failure["category"], "Logical inconsistencies")
+        self.assertEqual(resume_failure["errors"][0]["input"]["end_date"], "2020-01-01")
+
+    def test_field_pattern_collapses_list_positions(self):
+        self.assertEqual(field_pattern(["experience", 0, "end_date"]), "experience[].end_date")
+        self.assertEqual(field_pattern([]), "<record>")
+
+    def test_enriched_pairs_join_job_resume_and_status(self):
+        result = validate_run(self.paths["jobs"], self.paths["resumes"], self.paths["pairs"], self.output_dir)
+        rows = [json.loads(line) for line in result["enriched_path"].read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["validation_status"], "valid")
+        self.assertEqual(row["job"]["prompt_template"], "formal_corporate")
+        self.assertEqual(row["resume"]["metadata"]["trace_id"], "resume-1")
+        self.assertEqual(row["skills_jaccard"], 1.0)
+        self.assertEqual(row["actual_fit_level"], "excellent")
+
+    def test_enriched_pairs_record_blocking_categories(self):
+        job = make_job()
+        job["job_description"]["company"]["size"] = "tiny"
+        self.write_records(job=job)
+        result = validate_run(self.paths["jobs"], self.paths["resumes"], self.paths["pairs"], self.output_dir)
+        row = json.loads(result["enriched_path"].read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(row["validation_status"], "blocked")
+        self.assertIsNone(row["job"])
+        self.assertEqual(row["validation_categories"], ["Type mismatches"])
+
     def test_malformed_json_line_is_preserved_as_invalid(self):
         with self.paths["jobs"].open("a", encoding="utf-8") as handle:
             handle.write("{broken json}\n")
@@ -363,11 +433,13 @@ class Step2ValidationTests(unittest.TestCase):
             patch("pipeline.run_startup_checks") as startup,
             patch("sys.argv", ["pipeline.py"]),
             patch("step1_generation.generate_job_descriptions", return_value=generated),
-            patch("step2_validation.validate_run") as validate,
+            patch("step2_validation.validate_run", return_value={"failure_modes_path": "report.json"}) as validate,
+            patch("step2_correction.correct_run") as correct,
         ):
             main()
         startup.assert_called_once_with("all", require_api_key=True)
         validate.assert_called_once_with("jobs.jsonl", "resumes.jsonl", "pairs.jsonl")
+        correct.assert_called_once_with("report.json")
 
     def test_only_jobs_generates_then_validates_generated_jobs(self):
         generated = {"jobs_path": "jobs.jsonl", "resumes_path": None, "pairs_path": None}

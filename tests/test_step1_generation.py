@@ -164,6 +164,8 @@ class ResumePromptTests(unittest.TestCase):
                 extra = 1 if fit_level == "complete_mismatch" else 0
                 self.assertEqual(fit_level_for_overlap(len(included) / (len(required) + extra)), fit_level)
                 self.assertEqual(sorted(included + omitted), sorted(required))
+                if fit_level in ("excellent", "good"):
+                    self.assertEqual(included[:3], required[:3])
 
     def test_render_fills_every_placeholder_and_hides_job_metadata(self):
         from step1_generation import load_resume_template, render_resume_prompt
