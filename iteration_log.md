@@ -103,3 +103,94 @@
 | After Metric | Validated 46 records: 37 valid, 5 invalid, 4 blocked (80.43% success) |
 | Delta | +8.69 percentage points; 4 fewer invalid records and 2 fewer blocked records |
 | Keep/Revert | Keep. Overall validation improved; remaining timeline failures reflect same-day job transitions and the 90% target is not yet met |
+
+## Iteration 8
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-10-08 |
+| Component | Resume Validation |
+| Change | Timeline overlap check now flags a role only when it starts strictly before the previous role ends (`<` instead of `<=`), so a same-day job transition is no longer treated as overlapping |
+| Reason | All four resumes still rejected after iteration 7 were same-day transitions (e.g. one role ends 2025-10-01 and the next starts 2025-10-01), which is a realistic history, not a hallucination |
+| Before Metric | Validated 46 records: 37 valid, 5 invalid, 4 blocked (80.43% success) on the 20261001 sources |
+| After Metric | Validated 46 records: 45 valid, 1 invalid, 0 blocked (97.83% success) on the same sources |
+| Delta | +17.4 percentage points; 4 fewer invalid resumes and 4 fewer blocked pairs |
+| Keep/Revert | Keep. The remaining failure is one job with missing required fields |
+
+## Iteration 9
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-10-08 |
+| Component | Resume Validation |
+| Change | Moved hallucination and awkward-language checks into the shared `resume_metrics.py` and recorded them as warnings on valid resumes instead of rejections. Hallucination now flags 20+ Expert skills (was 30+ total skills, above the schema cap of 30) and skill years longer than the career span plus one year. Awkward language now uses buzzword density (more than 2 per 100 words), more than 5 distinct buzzwords, or triple-word repetition, instead of flagging any single buzzword. Job template rule failures are split into one error per field, model-level errors point at the field they name, errors keep Pydantic `input`/`ctx`, and the report adds a field × category matrix. Step 2 also writes `pairs_enriched_{ts}.jsonl` for step 3 |
+| Reason | Content-quality signals are what step 3 analyzes, so rejecting them removed the data; the old hallucination threshold could not fire; per-field errors are needed for the schema heatmap and the correction loop |
+| Before Metric | Validated 46 records: 45 valid, 1 invalid, 0 blocked (97.83% success) on the 20261001 sources |
+| After Metric | Validated 46 records: 45 valid, 1 invalid, 0 blocked (97.83% success); 0 records with warnings |
+| Delta | No change in success rate on these sources; success rate no longer counts hallucination or awkward-language findings, so it is not comparable with iterations 6-7 |
+| Keep/Revert | Keep |
+
+## Iteration 10
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-10-08 |
+| Component | Correction Loop |
+| Change | Added `step2_correction.py` (`python3 pipeline.py correct`, and part of the full run after validation). For each invalid job or resume it sends the error context (field path, error type, invalid value, expected format) and the original record back to the LLM, re-validates, and retries up to `MAX_ATTEMPTS` (3). Pipeline-assigned ids are restored after every reply, and pair or id errors are marked not correctable. Corrected records go to `corrected_{jobs,resumes}_{ts}.jsonl`, which step 2 then re-validates. Step 1's retry messages now use the same error context and prompt builder (`correction.py`) |
+| Reason | SPEC calls for a correction loop with >50% success within 3 attempts; step 1 never schema-checks jobs, so job errors were only found in step 2 and never fixed |
+| Before Metric | Validated 46 records: 45 valid, 1 invalid, 0 blocked (97.83% success) on the 20261001 sources |
+| After Metric | Corrected 1 of 1 correctable invalid records on attempt 3 (100%); re-validation: 46 valid, 0 invalid (100.0% success) |
+| Delta | +2.17 percentage points validation success; correction success rate not meaningful on 1 record |
+| Keep/Revert | Pending; needs a larger generation run to measure the >50% target |
+
+## Iteration 11
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-10-08 |
+| Component | Failure Analysis |
+| Change | Added `step3_failure_analysis.py` (`python3 pipeline.py step3`, and part of the full run after correction). It labels every pair in `pairs_enriched_{ts}.jsonl` whose job and resume validated with six flags (skills gap: Jaccard < 0.4; experience: resume years < 50% of required; seniority: level gap > 1; missing any of the first 3 required skills; hallucination; awkward language) plus the numeric values behind them, and writes `failure_labels_{ts}.jsonl` and `failure_stats_{ts}.json` (rates overall and by fit level, job template, writing style, niche, seniority; phi correlation; distributions; 10-pair Jaccard spot check against step 2) |
+| Reason | SPEC step 3: explain why a resume fails to match a job, and provide the data step 4 charts |
+| Before Metric | Not measured |
+| After Metric | 18 pairs labeled, 0 skipped (20261008T150517 validation; only excellent/good fits). Flag rates: skills gap 0%, experience 0%, seniority 11%, missing core skills 50%, hallucination 0%, awkward language 0%. Jaccard spot check matched step 2 on 10/10 pairs |
+| Delta | Not measured; first run |
+| Keep/Revert | Keep |
+
+## Iteration 12
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-10-08 |
+| Component | Failure Analysis and Resume Generator |
+| Change | (1) Seniority mapping: "Manager" moved from level 3 to level 2, and an Assistant/Associate/Asst qualifier lowers a title one level (e.g. "Assistant Store Manager" = 1, "Associate Director" = 3). (2) `select_resume_skills` now always includes the first `CORE_SKILL_COUNT` (3) required skills for excellent and good fits and rotates only the remaining skills; partial/poor/complete_mismatch are unchanged. `CORE_SKILL_COUNT` moved to `config.py` and is shared with step 3 |
+| Reason | (1) Both seniority mismatches in iteration 11 were mid-level jobs matched to "Store Manager"/"Facilities Manager" resumes, which are mid-level roles in those industries. (2) All 9 missing-core-skill flags were good fits that the generator's rotation had made omit one of the first three required skills |
+| Before Metric | Seniority mismatch 11% (2/18), missing core skills 50% (9/18) on the 20261008T150517 validation |
+| After Metric | Seniority mismatch 0% (0/18) on the same data. Missing core skills still 50% on existing data: the generator change only applies to newly generated resumes |
+| Delta | Seniority mismatch -11 percentage points; missing core skills not yet measured |
+| Keep/Revert | Keep (1). Pending (2) until a new generation run |
+
+## Iteration 14
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-10-08 |
+| Component | Validator |
+| Change | Compared validation success rate for jobs, pairs, resumes using `--log` |
+| Reason | Not recorded |
+| Before Metric | 100.0% success rate (20261008T150517125129Z) |
+| After Metric | 100.0% success rate (20261008T230347229454Z) |
+| Delta | No change of 0 percentage points |
+| Keep/Revert | Pending; a run comparison alone does not establish a code-change decision |
+
+## Iteration 15
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-10-14 |
+| Component | Validator |
+| Change | Compared validation success rate for jobs, pairs, resumes using `--log` |
+| Reason | Not recorded |
+| Before Metric | 100.0% success rate (20261008T230347229454Z) |
+| After Metric | 100.0% success rate (20261014T093233843676Z) |
+| Delta | No change of 0 percentage points |
+| Keep/Revert | Pending; a run comparison alone does not establish a code-change decision |
