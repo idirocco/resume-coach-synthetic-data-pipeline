@@ -43,3 +43,37 @@ Each validation invocation writes three artifacts under `output/`, named with it
 - `validated_data_<timestamp>.json` contains validated records with their record type and source location.
 - `invalid_<timestamp>.jsonl` contains failed source records, locations, and categorized errors.
 - `schema_failure_modes_<timestamp>.json` summarizes category counts, failure percentages, common fields, and the observed validation success rate. The 90% success rate is a target, not a guarantee.
+
+## Review API
+
+```bash
+uvicorn api:app --reload    # http://localhost:8000, interactive docs at /docs
+```
+
+The API scores resumes with the same functions as step 3, so its flags match `failure_labels_*.jsonl` for the same pair. It needs no API key.
+
+- `GET /health` returns the status, the API version, and the timestamp of the newest `failure_stats_*.json` (or `null`).
+- `POST /review-resume` takes `{"resume": {...}, "job": {...}}`, and `job` is optional. Resumes and jobs use the pipeline's field shapes, but `metadata` is optional and lists may be empty. The response contains:
+  - `resume_checks`: seniority, years of experience, and hallucination and buzzword details.
+  - `job_fit`: skill overlap, missing core skills, and the experience and seniority gaps. It is `null` without a job.
+  - `integrity`: whether the resume reached its intended fit. The intended fit comes from `resume.metadata.fit_level`; without one, `integrity` is `null`.
+  - `flags`, `triggered_flags` and `failure_count`: the two resume-side flags without a job, or all six with one.
+  - `schema_warnings`: what the strict pipeline schemas would reject. These are informational only.
+  - `detail`: plain-language reasons for each flag.
+- `GET /analysis/failure-rates` returns the overall and per-group failure rates from the newest step 3 run. Add `?include=correlation,distributions,spot_check` for the larger sections. It returns 404 if step 3 has not run yet.
+
+Every error is JSON: 422 `validation_error` for missing fields, wrong types or malformed JSON, 404 `no_failure_stats`, and 500 `internal_error`.
+
+```bash
+curl -s localhost:8000/review-resume -H 'content-type: application/json' -d '{
+  "resume": {
+    "contact_info": {"name": "Ana Diaz", "email": "ana@example.com", "phone": "+1-202-555-0100", "location": "Austin, TX"},
+    "education": [{"degree": "BS Computer Science", "institution": "UT Austin", "graduation_date": "2019-05-15"}],
+    "experience": [{"company": "Acme", "title": "Data Engineer", "start_date": "2019-07-01",
+                    "responsibilities": ["Built ETL pipelines"], "achievements": ["Cut load time 40%"]}],
+    "skills": [{"name": "Python", "proficiency_level": "Advanced", "years": 5}, {"name": "SQL", "proficiency_level": "Advanced"}]
+  },
+  "job": {"title": "Senior Data Engineer",
+          "requirements": {"required_skills": ["Python", "SQL", "Airflow"], "experience_years": 5, "experience_level": "senior"}}
+}'
+```

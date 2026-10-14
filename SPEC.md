@@ -29,10 +29,10 @@ and provide actionable feedback. It should be able to:
    - `GET /health` — health check
    - `GET /analysis/failure-rates` — aggregate statistics
 
-Step 1 (job description generation) is implemented in `step1_generation.py` /
-`schemas.py` / `config.py` / `prompts/job_description/`. Steps 2-5 are not
-started; `pipeline.py`'s `step` argument (`step1` vs `all`) anticipates them
-but only dispatches to step 1 today.
+Steps 1-4 are implemented (`pipeline.py` dispatches to each). Step 5 is
+implemented in `api.py` / `api_models.py` (`uvicorn api:app`) with all three
+endpoints; the optional LLM-as-Judge is not built yet, so only the <2s budget
+applies today.
 
 ## Success metrics
 
@@ -79,7 +79,7 @@ The labeling system must calculate these metrics for every resume-job pair:
 - LLM generation currently uses OpenRouter's `meta-llama/llama-3.1-8b-instruct` model via the `openai` SDK. The provider/model choice is set in `config.py`.
 - Pandas — data manipulation and analysis (not yet a dependency)
 - Matplotlib/Seaborn — visualization generation (not yet a dependency)
-- FastAPI — REST API framework (not yet a dependency; no API exists yet)
+- FastAPI — REST API framework (`api.py`, served with uvicorn)
 
 ## Data schema requirements
 

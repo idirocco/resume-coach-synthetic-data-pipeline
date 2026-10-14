@@ -20,8 +20,10 @@ from resume_metrics import (
     resume_years,
     skill_key,
 )
+from schemas import fit_level_for_overlap
 
 ENRICHED_PATTERN = re.compile(r"^pairs_enriched_(\d{8}T\d{6}\d*Z)\.jsonl$")
+STATS_PATTERN = re.compile(r"^failure_stats_(\d{8}T\d{6}\d*Z)\.json$")
 FLAGS = (
     "skills_gap_flag",
     "experience_mismatch_flag",
@@ -49,6 +51,16 @@ def discover_latest_enriched(output_dir=OUTPUT_DIR):
     return max(candidates)
 
 
+def discover_latest_stats(output_dir=OUTPUT_DIR):
+    """(timestamp, path) of the newest failure_stats file, or None if step 3 has not run."""
+    candidates = []
+    for path in Path(output_dir).glob("failure_stats_*.json"):
+        match = STATS_PATTERN.fullmatch(path.name)
+        if match:
+            candidates.append((match.group(1), path))
+    return max(candidates) if candidates else None
+
+
 def _corrections_for(timestamp, output_dir):
     """Attempts per corrected (record_type, trace_id) from the correction run that produced this validation."""
     corrections = {}
@@ -66,11 +78,30 @@ def _corrections_for(timestamp, output_dir):
     return corrections
 
 
-def label_pair(row, corrections=None):
-    """All failure metrics for one enriched pair whose job and resume both validated."""
-    corrections = corrections or {}
-    job = row["job"]["job_description"]
-    resume = row["resume"]
+def resume_checks(resume):
+    """Metrics and flags that need only the resume (no job)."""
+    resume_seniority, seniority_source = infer_resume_seniority(resume)
+    hallucinations = hallucination_reasons(resume)
+    awkward_stats = awkward_language_stats(resume)
+    awkward = awkward_language_reasons(resume)
+    return {
+        "resume_seniority": resume_seniority,
+        "resume_seniority_name": SENIORITY_NAMES[resume_seniority],
+        "resume_seniority_source": seniority_source,
+        "resume_years": resume_years(resume),
+        "expert_skill_count": expert_skill_count(resume),
+        "hallucination_reasons": sorted({reason["code"] for reason in hallucinations}),
+        "buzzword_density": awkward_stats["buzzword_density"],
+        "buzzword_hits": awkward_stats["buzzword_hits"],
+        "repetition_flag": awkward_stats["repetition"],
+        "awkward_language_reasons": [reason["code"] for reason in awkward],
+        "hallucination_flag": bool(hallucinations),
+        "awkward_language_flag": bool(awkward),
+    }
+
+
+def job_fit_checks(job, resume):
+    """Metrics and flags comparing a resume against a job description's requirements."""
     requirements = job["requirements"]
     required_skills = requirements["required_skills"]
     resume_skill_names = [skill["name"] for skill in resume["skills"]]
@@ -85,21 +116,38 @@ def label_pair(row, corrections=None):
     experience_ratio = round(years / required_years, 3) if required_years > 0 else None
 
     job_seniority = JOB_LEVEL_SENIORITY[requirements["experience_level"]]
-    resume_seniority, seniority_source = infer_resume_seniority(resume)
+    resume_seniority, _ = infer_resume_seniority(resume)
     seniority_gap = resume_seniority - job_seniority
-
-    hallucinations = hallucination_reasons(resume)
-    awkward_stats = awkward_language_stats(resume)
-    awkward = awkward_language_reasons(resume)
-
-    flags = {
-        "skills_gap_flag": overlap["score"] < SKILLS_GAP_THRESHOLD,
+    # Pipeline jobs always list required skills; API input may not, and then there is no overlap to score.
+    has_required = bool(required_skills)
+    return {
+        "job_experience_level": requirements["experience_level"],
+        "job_seniority": job_seniority,
+        "job_seniority_name": SENIORITY_NAMES[job_seniority],
+        "seniority_gap": seniority_gap,
+        "required_years": required_years,
+        "experience_gap_years": round(required_years - years, 2),
+        "experience_ratio": experience_ratio,
+        "skills_jaccard": round(overlap["score"], 4) if has_required else None,
+        "actual_fit_level": fit_level_for_overlap(overlap["score"]) if has_required else None,
+        "matched_skills": overlap["intersection"],
+        "core_skills": core_skills,
+        "missing_core_skills": missing_core,
+        "skills_gap_flag": has_required and overlap["score"] < SKILLS_GAP_THRESHOLD,
         "experience_mismatch_flag": experience_ratio is not None and experience_ratio < EXPERIENCE_RATIO_THRESHOLD,
         "seniority_mismatch_flag": abs(seniority_gap) > SENIORITY_GAP_THRESHOLD,
         "missing_core_skills_flag": bool(missing_core),
-        "hallucination_flag": bool(hallucinations),
-        "awkward_language_flag": bool(awkward),
     }
+
+
+def label_pair(row, corrections=None):
+    """All failure metrics for one enriched pair whose job and resume both validated."""
+    corrections = corrections or {}
+    job = row["job"]["job_description"]
+    resume = row["resume"]
+    resume_side = resume_checks(resume)
+    job_side = job_fit_checks(job, resume)
+    flags = {flag: (resume_side | job_side)[flag] for flag in FLAGS}
     failure_count = sum(flags.values())
     job_attempts = corrections.get(("job", row["job_trace_id"]))
     resume_attempts = corrections.get(("resume", row["resume_trace_id"]))
@@ -112,26 +160,26 @@ def label_pair(row, corrections=None):
         "resume_writing_style": resume["metadata"]["writing_style"],
         "industry": row["job"]["assigned_industry"],
         "is_niche_role": job["metadata"]["is_niche_role"],
-        "job_experience_level": requirements["experience_level"],
-        "job_seniority": job_seniority,
-        "resume_seniority": resume_seniority,
-        "resume_seniority_name": SENIORITY_NAMES[resume_seniority],
-        "resume_seniority_source": seniority_source,
-        "seniority_gap": seniority_gap,
-        "required_years": required_years,
-        "resume_years": years,
-        "experience_gap_years": round(required_years - years, 2),
-        "experience_ratio": experience_ratio,
-        "skills_jaccard": round(overlap["score"], 4),
-        "matched_skills": overlap["intersection"],
-        "core_skills": core_skills,
-        "missing_core_skills": missing_core,
-        "expert_skill_count": expert_skill_count(resume),
-        "hallucination_reasons": sorted({reason["code"] for reason in hallucinations}),
-        "buzzword_density": awkward_stats["buzzword_density"],
-        "buzzword_hits": awkward_stats["buzzword_hits"],
-        "repetition_flag": awkward_stats["repetition"],
-        "awkward_language_reasons": [reason["code"] for reason in awkward],
+        "job_experience_level": job_side["job_experience_level"],
+        "job_seniority": job_side["job_seniority"],
+        "resume_seniority": resume_side["resume_seniority"],
+        "resume_seniority_name": resume_side["resume_seniority_name"],
+        "resume_seniority_source": resume_side["resume_seniority_source"],
+        "seniority_gap": job_side["seniority_gap"],
+        "required_years": job_side["required_years"],
+        "resume_years": resume_side["resume_years"],
+        "experience_gap_years": job_side["experience_gap_years"],
+        "experience_ratio": job_side["experience_ratio"],
+        "skills_jaccard": job_side["skills_jaccard"],
+        "matched_skills": job_side["matched_skills"],
+        "core_skills": job_side["core_skills"],
+        "missing_core_skills": job_side["missing_core_skills"],
+        "expert_skill_count": resume_side["expert_skill_count"],
+        "hallucination_reasons": resume_side["hallucination_reasons"],
+        "buzzword_density": resume_side["buzzword_density"],
+        "buzzword_hits": resume_side["buzzword_hits"],
+        "repetition_flag": resume_side["repetition_flag"],
+        "awkward_language_reasons": resume_side["awkward_language_reasons"],
         **flags,
         "failure_count": failure_count,
         "any_failure": failure_count > 0,

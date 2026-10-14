@@ -220,3 +220,29 @@
 | After Metric | 10 charts rendered for the 20261014T093233 run (25 pairs, 5 jobs). The schema heatmap, hallucination stack, niche comparison and both correction charts have no data in this run (0 invalid records, 0 hallucination or awkward-language flags, 0 niche jobs) |
 | Delta | Not measured; first run |
 | Keep/Revert | Keep |
+
+## Iteration 18
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-10-14 |
+| Component | Validator |
+| Change | Compared validation success rate for jobs, pairs, resumes using `--log` |
+| Reason | Not recorded |
+| Before Metric | 100.0% success rate (20261014T093233843676Z) |
+| After Metric | 100.0% success rate (20261014T132013219616Z) |
+| Delta | No change of 0 percentage points |
+| Keep/Revert | Pending; a run comparison alone does not establish a code-change decision |
+
+## Iteration 19
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-10-14 |
+| Component | API |
+| Change | Added the step 5 REST API (`api.py`, `api_models.py`, `uvicorn api:app`): `POST /review-resume` (resume-side checks always, job fit and integrity view when a job is sent, triggered flags, schema warnings, detail), `GET /health`, `GET /analysis/failure-rates` (newest `failure_stats_*.json`). Split `label_pair` into `resume_checks` + `job_fit_checks` so the API reuses step 3; `job_fit_checks` also returns `actual_fit_level`, and scores no skill overlap when a job lists no required skills (unreachable for pipeline jobs, which require 5+). LLM judge deferred |
+| Reason | SPEC step 5: serve the failure analysis for real-time review |
+| Before Metric | Not measured; no API existed |
+| After Metric | On the 49 valid pairs of 20261014T132013219616Z: API flags equal `label_pair` flags for 49/49, API fit level equals step 2 `actual_fit_level` for 49/49, slowest review 61 ms (target <2 s). Step 3 labels unchanged by the refactor (0 differences on the same 49 pairs). 109 tests pass (21 new API tests) |
+| Delta | Not measured; first API version |
+| Keep/Revert | Keep. The <10 s LLM-judge budget is untested because the judge is not built |
