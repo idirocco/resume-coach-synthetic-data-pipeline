@@ -194,3 +194,29 @@
 | After Metric | 100.0% success rate (20261014T093233843676Z) |
 | Delta | No change of 0 percentage points |
 | Keep/Revert | Pending; a run comparison alone does not establish a code-change decision |
+
+## Iteration 13
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-10-14 |
+| Component | Resume Generator |
+| Change | Measured iteration 12's core-skills change on a new generation run (jobs_20261013T204224Z: 5 jobs written of 10 planned, 25 resumes, 25 pairs) |
+| Reason | Iteration 12 left the generator change Pending until a new run |
+| Before Metric | Missing core skills 50% (9/18, good fits only) on the 20261008 data |
+| After Metric | Missing core skills 0% for excellent (0/5) and good (0/5); partial, poor and complete_mismatch 100% (15/15, expected: their prompts still omit core skills). Validation 55/55 valid (100%); correction had nothing to fix |
+| Delta | -50 percentage points for good fits (9/18 to 0/5 missing); excellent was not measured before |
+| Keep/Revert | Keep. Only 5 of 10 jobs were written, so no niche_specialist job exists in this run and the correction success rate is still unmeasured |
+
+## Iteration 14
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-10-14 |
+| Component | Visualization |
+| Change | Added `step4_visualization.py` (`python3 pipeline.py step4`, and the last step of the full run): 10 PNG charts (failure-mode correlation, failure rates by fit level / job template / writing style / niche vs standard, schema validation heatmap, hallucination by seniority, skills overlap by fit level, correction success by category, attempts per fix) plus a `failure_rates_table.csv` table view in `visualizations/{ts}/`. Targets (`FAILURE_TARGETS`) are in `config.py`; charts without data are placeholder PNGs |
+| Reason | SPEC step 4: show failure patterns across fit levels, templates and roles |
+| Before Metric | Not measured |
+| After Metric | 10 charts rendered for the 20261014T093233 run (25 pairs, 5 jobs). The schema heatmap, hallucination stack, niche comparison and both correction charts have no data in this run (0 invalid records, 0 hallucination or awkward-language flags, 0 niche jobs) |
+| Delta | Not measured; first run |
+| Keep/Revert | Keep |

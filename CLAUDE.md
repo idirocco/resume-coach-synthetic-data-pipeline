@@ -4,19 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A synthetic data pipeline that generates, validates, and analyzes resume/job-description pairs using LLMs, for training/evaluating a resume-coaching product. Only "step 1" (job description generation) is implemented today; `pipeline.py` already anticipates further steps via a `step` CLI arg (`step1` vs `all`), but only `step1` does anything.
+A synthetic data pipeline that generates, validates, and analyzes resume/job-description pairs using LLMs, for training/evaluating a resume-coaching product. Implemented today: step 1 (generation of jobs, resumes and pairs), step 2 (validation), a correction loop, step 3 (failure labeling) and step 4 (charts). The FastAPI review endpoint is not built.
 
-**See `SPEC.md` for the full target design**: resume generation with controlled fit levels, validation/correction loops, failure-metric analysis (Jaccard skill overlap, seniority/experience mismatch, hallucination detection), and a FastAPI review endpoint. None of that is built yet — treat `SPEC.md` as the roadmap, not the current state. Notably the spec calls for `Instructor` for structured LLM outputs, FastAPI, and Pandas/Matplotlib/Seaborn, none of which are dependencies yet; step 1 gets structured output today by hand-parsing chat completion JSON (`parse_json_object` in `step1_generation.py`).
+**See `SPEC.md` for the full target design.** The FastAPI endpoint and `Instructor` are not adopted yet; LLM output is hand-parsed (`parse_json_object` in `step1_generation.py`).
 
 ## Commands
 
 ```bash
 python3 -m pip install -r requirements.txt   # install deps
-python3 pipeline.py                          # run step1 (default)
-python3 pipeline.py step1                    # same, explicit
+python3 pipeline.py                          # steps 1 -> 2 -> correction -> 3 -> 4 (makes LLM calls)
+python3 pipeline.py step1                    # generation only
+python3 pipeline.py step2                    # validate the latest jobs/resumes/pairs files
+python3 pipeline.py correct                  # LLM correction of the latest step 2 report's invalid records
+python3 pipeline.py step3                    # failure labels from the latest pairs_enriched file
+python3 pipeline.py step4                    # charts from the latest failure labels
+python3 -m pytest                            # tests (no LLM calls)
 ```
 
-There are no tests, lint config, or CI in this repo currently.
+Steps 2-4 and `correct` read the newest files in `output/`; only step 1 and `correct` need `OPENROUTER_API_KEY`. There is no lint config or CI.
 
 ### Configuration
 
@@ -34,6 +39,14 @@ The pipeline is a straight-line script, not a framework — each module has one 
 - **`schemas.py`** — the Pydantic contract for a `JobDescription` (company/requirements/title/description/responsibilities/metadata), plus **template-specific validation rules**. This is the important cross-cutting piece: `TEMPLATE_CONSTRAINTS` maps each template name to a `TemplateConstraints` (skill counts, sentence counts, allowed company sizes/experience levels, whether the role must be niche). `JobDescription.apply_rules` runs both universal checks (experience-years-matches-level band, no duplicate/overlapping skills, industry/trace_id/generated_at echoed back correctly) and the template-specific ones from this map. **A prompt template and its `TemplateConstraints` entry must stay in sync** — the LLM output is only as good as the prompt's instructions, but it's the schema that actually enforces/rejects it.
 - **`step1_generation.py`** — orchestrates one run: loads templates, builds the batch plan, calls OpenRouter (`openai` SDK pointed at `https://openrouter.ai/api/v1`, `response_format={"type": "json_object"}`) per item, parses/validates the JSON response against `schemas.py`, and appends successes to the JSONL output as it goes (not batched at the end). On validation failure, `generate_one` doesn't just retry blind — it appends the bad response plus the specific Pydantic error message to the conversation and asks the model to correct it, up to `MAX_ATTEMPTS` turns, before giving up and skipping the item. This is a lightweight version of the "Correction" step described in `SPEC.md`, implemented inline rather than as a separate pass.
 - **`pipeline.py`** — thin entrypoint: runs startup checks, then dispatches to the requested step.
+
+### Steps 2-4 (analysis)
+
+- **`resume_metrics.py`** — pure functions shared by steps 2 and 3 so they cannot disagree: `skill_key`/`jaccard`, `resume_years` (ongoing roles end at the resume's `generated_at`), seniority inference (title keywords, else years), hallucination and awkward-language rules. Change a threshold here, not in the steps.
+- **`step2_validation.py`** — schema failures reject a record; hallucination/awkward language are only *warnings* on valid resumes. Writes `validated_data`, `invalid`, `schema_failure_modes` (with a field × category matrix) and `pairs_enriched_{ts}.jsonl`, the one-row-per-pair file step 3 reads.
+- **`correction.py` + `step2_correction.py`** — error context and correction prompt shared with step 1's retries; up to `MAX_ATTEMPTS` turns per invalid job/resume, pipeline-assigned ids restored after each reply, then the corrected files are re-validated. Pair errors are not correctable.
+- **`step3_failure_analysis.py`** — six flags per pair plus the numbers behind them, `failure_labels_{ts}.jsonl` and `failure_stats_{ts}.json`. Targets for core skills live in `config.py` (`CORE_SKILL_COUNT`, shared with the generator).
+- **`step4_visualization.py`** — 10 PNGs plus a rates CSV in `visualizations/{ts}/`; a chart without data is a placeholder PNG saying why. Targets come from `FAILURE_TARGETS` in `config.py`.
 
 ### Adding a new prompt template
 

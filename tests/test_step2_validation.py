@@ -435,6 +435,8 @@ class Step2ValidationTests(unittest.TestCase):
             patch("step1_generation.generate_job_descriptions", return_value=generated),
             patch("step2_validation.validate_run", return_value={"failure_modes_path": "report.json"}) as validate,
             patch("step2_correction.correct_run") as correct,
+            patch("step3_failure_analysis.analyze_latest_run"),
+            patch("step4_visualization.visualize_latest_run"),
         ):
             main()
         startup.assert_called_once_with("all", require_api_key=True)

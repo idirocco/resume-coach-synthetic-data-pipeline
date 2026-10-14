@@ -35,6 +35,17 @@ MAX_CONCURRENT_REQUESTS = 3
 PROMPTS_DIR = ROOT / "prompts" / "job_description"
 RESUME_PROMPTS_DIR = ROOT / "prompts" / "resume"
 OUTPUT_DIR = ROOT / "output"
+VISUALIZATIONS_DIR = ROOT / "visualizations"
+
+# Failure-rate targets drawn on the step 4 charts: flag -> (max percent of pairs, fit levels it applies to, or None for all).
+# Skills, core-skill and seniority gaps are expected for partial/poor/complete_mismatch fits, so they are only targeted for strong fits.
+FAILURE_TARGETS = {
+    "hallucination_flag": (5.0, None),
+    "awkward_language_flag": (5.0, None),
+    "skills_gap_flag": (10.0, ("excellent", "good")),
+    "missing_core_skills_flag": (10.0, ("excellent", "good")),
+    "seniority_mismatch_flag": (10.0, ("excellent", "good")),
+}
 
 
 def ensure_output_dir() -> Path:

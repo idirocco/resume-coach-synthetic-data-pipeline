@@ -10,7 +10,7 @@ from startup_checks import run_startup_checks
 
 def parse_arguments(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("step", nargs="?", choices=("step1", "step2", "correct", "step3"))
+    parser.add_argument("step", nargs="?", choices=("step1", "step2", "correct", "step3", "step4"))
     only_group = parser.add_mutually_exclusive_group()
     only_group.add_argument("--only-jobs", action="store_true")
     only_group.add_argument("--only-resumes", action="store_true")
@@ -44,6 +44,12 @@ def main(argv=None):
     step = args.step or "step1"
     checks_step = "all" if run_complete_pipeline or run_jobs_validation else step
     run_startup_checks(checks_step, require_api_key=only in {None, "jobs"})
+
+    if step == "step4":
+        from step4_visualization import visualize_latest_run
+
+        visualize_latest_run()
+        return
 
     if step == "step3":
         from step3_failure_analysis import analyze_latest_run
@@ -92,6 +98,9 @@ def main(argv=None):
             from step3_failure_analysis import analyze_latest_run
 
             analyze_latest_run()
+            from step4_visualization import visualize_latest_run
+
+            visualize_latest_run()
 
 
 if __name__ == "__main__":
