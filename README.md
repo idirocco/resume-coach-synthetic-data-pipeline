@@ -1,6 +1,6 @@
 # Resume Coach Synthetic Data Pipeline
 
-Generate and validate synthetic job descriptions, resumes, and resume-job pairs.
+Production-grade synthetic-data pipeline that generates resume ↔ job-description pairs at controlled quality levels, validates them with Pydantic, labels each pair with six rule-based failure metrics, self-corrects invalid records via an LLM feedback loop, visualizes the failure patterns, and serves the analysis through a FastAPI REST API.
 
 ## Commands
 
