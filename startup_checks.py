@@ -40,6 +40,6 @@ def run_startup_checks(step="step1", require_api_key=True):
         ensure_dependencies(["pydantic"])
     if step in {"step4", "all"}:
         ensure_dependencies(["pandas", "matplotlib", "seaborn"])
-    if step == "correct":
+    if step in {"correct", "judge"}:
         ensure_dependencies(["openai", "dotenv", "pydantic"])
         ensure_openrouter_key()

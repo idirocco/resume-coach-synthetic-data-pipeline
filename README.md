@@ -14,6 +14,8 @@ python3 pipeline.py step2    # validate the newest complete source run
 python3 pipeline.py step2 --only-jobs
 python3 pipeline.py step2 --only-resumes
 python3 pipeline.py step2 --only-pairs
+python3 pipeline.py judge    # LLM judge over the newest pairs_enriched file
+python3 pipeline.py judge --limit 10
 ```
 
 `step1` runs generation in dependency order: jobs, resumes, then pairs. Omit the selector to generate all three. Its selectors are mutually exclusive:
@@ -44,13 +46,23 @@ Each validation invocation writes three artifacts under `output/`, named with it
 - `invalid_<timestamp>.jsonl` contains failed source records, locations, and categorized errors.
 - `schema_failure_modes_<timestamp>.json` summarizes category counts, failure percentages, common fields, and the observed validation success rate. The 90% success rate is a target, not a guarantee.
 
+## LLM judge
+
+`python3 pipeline.py judge` sends every valid pair in the newest `pairs_enriched_*.jsonl` to a second model (`JUDGE_MODEL` in `config.py`, `anthropic/claude-haiku-5.5`, a different family from the generator) with the prompt in `prompts/llm_judge.txt`. The judge looks for what the step 3 rules miss: hallucinations, awkward language, a narrative fit assessment, and red flags such as gaps or inconsistent progression. Resume and job metadata are not sent, so the intended fit level cannot bias it. It is optional, is not part of the default run, and needs `OPENROUTER_API_KEY`; `--limit N` judges only the first N pairs.
+
+It writes `output/judge_output.json`, overwritten on each run, with:
+
+- `results`: one verdict per pair in the judge schema (`trace_id` is the resume's), plus `pair_id`, `fit_level` and the step 3 rule flags for the same resume.
+- `summary`: hallucination, awkward-language and red-flag rates, the mean quality score overall and per fit level, and how often the judge agrees with the rule flags.
+- `failures`: pairs with no valid verdict after `JUDGE_MAX_ATTEMPTS` turns.
+
 ## Review API
 
 ```bash
 uvicorn api:app --reload    # http://localhost:8000, interactive docs at /docs
 ```
 
-The API scores resumes with the same functions as step 3, so its flags match `failure_labels_*.jsonl` for the same pair. It needs no API key.
+The API scores resumes with the same functions as step 3, so its flags match `failure_labels_*.jsonl` for the same pair. It needs no API key unless `?judge=1` is used.
 
 - `GET /health` returns the status, the API version, and the timestamp of the newest `failure_stats_*.json` (or `null`).
 - `POST /review-resume` takes `{"resume": {...}, "job": {...}}`, and `job` is optional. Resumes and jobs use the pipeline's field shapes, but `metadata` is optional and lists may be empty. The response contains:
@@ -60,9 +72,10 @@ The API scores resumes with the same functions as step 3, so its flags match `fa
   - `flags`, `triggered_flags` and `failure_count`: the two resume-side flags without a job, or all six with one.
   - `schema_warnings`: what the strict pipeline schemas would reject. These are informational only.
   - `detail`: plain-language reasons for each flag.
+  - `judge`: the LLM judge verdict with `?judge=1`, otherwise `null`. It makes one model call with reasoning off and needs `OPENROUTER_API_KEY`.
 - `GET /analysis/failure-rates` returns the overall and per-group failure rates from the newest step 3 run. Add `?include=correlation,distributions,spot_check` for the larger sections. It returns 404 if step 3 has not run yet.
 
-Every error is JSON: 422 `validation_error` for missing fields, wrong types or malformed JSON, 404 `no_failure_stats`, and 500 `internal_error`.
+Every error is JSON: 422 `validation_error` for missing fields, wrong types or malformed JSON, 404 `no_failure_stats`, and 500 `internal_error`. With `?judge=1`: 503 `judge_unavailable` without an API key, 502 `judge_failed` for an invalid model reply, and 504 `judge_timeout` after `JUDGE_API_TIMEOUT_SECONDS` (9 s).
 
 ```bash
 curl -s localhost:8000/review-resume -H 'content-type: application/json' -d '{

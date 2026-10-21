@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A synthetic data pipeline that generates, validates, and analyzes resume/job-description pairs using LLMs, for training/evaluating a resume-coaching product. Implemented today: step 1 (generation of jobs, resumes and pairs), step 2 (validation), a correction loop, step 3 (failure labeling), step 4 (charts) and step 5 (the FastAPI review API, without the LLM judge).
+A synthetic data pipeline that generates, validates, and analyzes resume/job-description pairs using LLMs, for training/evaluating a resume-coaching product. Implemented today: step 1 (generation of jobs, resumes and pairs), step 2 (validation), a correction loop, step 3 (failure labeling), step 4 (charts), an optional LLM judge, and step 5 (the FastAPI review API, with the judge behind `?judge=1`).
 
-**See `SPEC.md` for the full target design.** The LLM judge and `Instructor` are not adopted yet; LLM output is hand-parsed (`parse_json_object` in `step1_generation.py`).
+**See `SPEC.md` for the full target design.** `Instructor` is not adopted yet; LLM output is hand-parsed (`parse_json_object` in `step1_generation.py`).
 
 ## Commands
 
@@ -18,11 +18,12 @@ python3 pipeline.py step2                    # validate the latest jobs/resumes/
 python3 pipeline.py correct                  # LLM correction of the latest step 2 report's invalid records
 python3 pipeline.py step3                    # failure labels from the latest pairs_enriched file
 python3 pipeline.py step4                    # charts from the latest failure labels
+python3 pipeline.py judge [--limit N]        # LLM judge over the latest pairs_enriched file -> output/judge_output.json
 python3 -m pytest                            # tests (no LLM calls)
 uvicorn api:app --reload                     # review API on :8000, docs at /docs
 ```
 
-Steps 2-4 and `correct` read the newest files in `output/`; only step 1 and `correct` need `OPENROUTER_API_KEY`. The API needs no key. There is no lint config or CI.
+Steps 2-4 and `correct` read the newest files in `output/`; only step 1, `correct` and `judge` need `OPENROUTER_API_KEY`. The API needs a key only for `?judge=1`. There is no lint config or CI.
 
 ### Configuration
 
@@ -48,10 +49,11 @@ The pipeline is a straight-line script, not a framework — each module has one 
 - **`correction.py` + `step2_correction.py`** — error context and correction prompt shared with step 1's retries; up to `MAX_ATTEMPTS` turns per invalid job/resume, pipeline-assigned ids restored after each reply, then the corrected files are re-validated. Pair errors are not correctable.
 - **`step3_failure_analysis.py`** — six flags per pair plus the numbers behind them, `failure_labels_{ts}.jsonl` and `failure_stats_{ts}.json`. Targets for core skills live in `config.py` (`CORE_SKILL_COUNT`, shared with the generator). `label_pair` is built from `resume_checks(resume)` and `job_fit_checks(job, resume)`, which the API calls directly — add a new metric there, not in the API.
 - **`step4_visualization.py`** — 10 PNGs plus a rates CSV in `visualizations/{ts}/`; a chart without data is a placeholder PNG saying why. Targets come from `FAILURE_TARGETS` in `config.py`.
+- **`llm_judge.py`** — `judge_resume` (one verdict, shared with the API) and `judge_run` (every valid pair → `output/judge_output.json`, overwritten each run, with rates and agreement with the step 3 rule flags). Prompt in `prompts/llm_judge.txt` (`[TRACE_ID]`, `[TODAY]`, `[JOB_DESCRIPTION]`, `[RESUME]`); `JUDGE_MODEL` in `config.py` must stay a different model family from `MODEL`. Metadata is stripped before sending so the intended fit cannot bias the verdict; the returned `trace_id` is overwritten with the caller's.
 
 ### Step 5 (API)
 
-- **`api.py`** — FastAPI app. `POST /review-resume` runs `resume_checks` (always) and `job_fit_checks` (when a job is sent) and adds the integrity view (`resume.metadata.fit_level` vs the actual fit), triggered flags, `schema_warnings` (what the strict pipeline schemas would reject, informational) and plain-language `detail`. `GET /analysis/failure-rates` serves the newest `failure_stats_*.json` (`?include=correlation,distributions,spot_check`). `GET /health`. Every error is JSON: 422 `validation_error`, 404 `no_failure_stats`, 500 `internal_error`. `config.OUTPUT_DIR` is read per request so tests can patch it.
+- **`api.py`** — FastAPI app. `POST /review-resume` runs `resume_checks` (always) and `job_fit_checks` (when a job is sent) and adds the integrity view (`resume.metadata.fit_level` vs the actual fit), triggered flags, `schema_warnings` (what the strict pipeline schemas would reject, informational) and plain-language `detail`. `GET /analysis/failure-rates` serves the newest `failure_stats_*.json` (`?include=correlation,distributions,spot_check`). `?judge=1` adds the LLM verdict (one attempt, reasoning off, hard deadline `JUDGE_API_TIMEOUT_SECONDS` enforced by a thread pool because httpx timeouts are per read). `GET /health`. Every error is JSON: 422 `validation_error`, 404 `no_failure_stats`, 500 `internal_error`, and with the judge 503 `judge_unavailable`, 502 `judge_failed`, 504 `judge_timeout`. `config.OUTPUT_DIR` is read per request so tests can patch it.
 - **`api_models.py`** — request/response models. Field rules reuse the `schemas.py` models; only metadata is optional and the pipeline's list minimums are dropped, so hand-written resumes and jobs are accepted.
 
 ### Adding a new prompt template

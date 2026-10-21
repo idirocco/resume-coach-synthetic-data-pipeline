@@ -142,3 +142,16 @@
 | After Metric | On the 49 valid pairs of 20261014T132013219616Z: API flags equal `label_pair` flags for 49/49, API fit level equals step 2 `actual_fit_level` for 49/49, slowest review 61 ms (target <2 s). Step 3 labels unchanged by the refactor (0 differences on the same 49 pairs). 109 tests pass (21 new API tests) |
 | Delta | Not measured; first API version |
 | Keep/Revert | Keep. The <10 s LLM-judge budget is untested because the judge is not built |
+
+## Iteration 11
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-10-21 |
+| Component | LLM Judge, API |
+| Change | Added the LLM judge (`llm_judge.py`, `prompts/llm_judge.txt`, `JUDGE_*` settings in `config.py`): `python3 pipeline.py judge [--limit N]` judges every valid pair of the newest `pairs_enriched` file with `anthropic/claude-haiku-5.5` (generator is `openai/gpt-oss-20b`) and writes `output/judge_output.json`; `POST /review-resume?judge=1` adds the verdict (one attempt, reasoning off, 9 s deadline; 503/502/504 on unavailable/failed/timeout). Resume and job metadata are stripped from the prompt |
+| Reason | SPEC step 3: optional LLM-as-Judge for subtle quality issues the rules miss; SPEC API budget <10 s with the judge |
+| Before Metric | API `?judge=1` with reasoning on (model default): 3 live requests on pairs of 20261014T132013219616Z took 11.5-17.1 s; one direct call used 5,051 completion tokens, 3,461 of them reasoning |
+| After Metric | Reasoning off plus length caps in the prompt: 5 live requests took 4.2-8.7 s, all 200. CLI on the first 3 valid pairs of 20261014T132013219616Z: 0 failed, judge hallucination rate 67% vs rule flag 0%, awkward language 33% vs 0%, mean quality score 0.67. 123 tests pass (14 new) |
+| Delta | API judge latency from 11.5-17.1 s to 4.2-8.7 s (now inside the <10 s budget) |
+| Keep/Revert | Keep the judge. Pending on whether its strictness is right: 3 pairs is too few to calibrate, and the judge flags hallucinations the rules do not, for example skill years longer than the roles that use them |

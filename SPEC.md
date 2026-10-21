@@ -31,8 +31,8 @@ and provide actionable feedback. It should be able to:
 
 Steps 1-4 are implemented (`pipeline.py` dispatches to each). Step 5 is
 implemented in `api.py` / `api_models.py` (`uvicorn api:app`) with all three
-endpoints; the optional LLM-as-Judge is not built yet, so only the <2s budget
-applies today.
+endpoints. The optional LLM-as-Judge is `llm_judge.py` (`pipeline.py judge`,
+or `POST /review-resume?judge=1`).
 
 ## Success metrics
 

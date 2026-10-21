@@ -6,6 +6,7 @@ real-world input: metadata is optional, and skills/experience/responsibility cou
 
 from pydantic import BaseModel, Field, model_validator
 
+from llm_judge import JudgeVerdict
 from schemas import (
     Company,
     ContactInfo,
@@ -124,3 +125,6 @@ class ReviewResponse(BaseModel):
     failure_count: int
     schema_warnings: list[str] = Field(description="What the strict pipeline schemas would reject; informational only.")
     detail: list[str]
+    judge: JudgeVerdict | None = Field(
+        default=None, description="LLM judge verdict; only with ?judge=1. trace_id is resume.metadata.trace_id or a generated id."
+    )

@@ -2,6 +2,10 @@
 
 import json
 import logging
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
+from functools import lru_cache
 
 from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -10,6 +14,7 @@ from pydantic import ValidationError
 
 import config
 from api_models import ReviewRequest, ReviewResponse
+from llm_judge import JudgeFailed, JudgeUnavailable, judge_resume, make_judge_client
 from resume_metrics import hallucination_reasons, awkward_language_reasons
 from schemas import JobDescription, Resume, validation_messages
 from step3_failure_analysis import (
@@ -150,8 +155,22 @@ def _detail(resume, resume_side, job_side, integrity):
     return detail
 
 
+# httpx timeouts are per read and OpenRouter keeps the connection alive while the model works, so the
+# request deadline is enforced here. A timed-out call finishes in the background and its result is dropped.
+_judge_pool = ThreadPoolExecutor(max_workers=config.MAX_CONCURRENT_REQUESTS)
+
+
+@lru_cache(maxsize=1)
+def _judge_client():
+    # Not cached when it raises, so setting the key later works without a restart.
+    return make_judge_client(timeout=config.JUDGE_API_TIMEOUT_SECONDS)
+
+
 @app.post("/review-resume", response_model=ReviewResponse)
-def review_resume(request: ReviewRequest):
+def review_resume(
+    request: ReviewRequest,
+    judge: bool = Query(default=False, description="Also run the LLM judge (one model call, up to ~10 s)."),
+):
     """Score a resume, optionally against a job. Without a job only the resume-side checks run."""
     resume = request.resume.model_dump(exclude_none=True)
     job = request.job.model_dump(exclude_none=True) if request.job is not None else None
@@ -171,6 +190,24 @@ def review_resume(request: ReviewRequest):
             "met_intended_fit": intended == job_side["actual_fit_level"],
         }
 
+    verdict = None
+    if judge:
+        trace_id = (resume.get("metadata") or {}).get("trace_id") or f"review-{uuid.uuid4()}"
+        try:
+            verdict = _judge_pool.submit(
+                judge_resume, _judge_client(), resume, job, trace_id, attempts=1, reasoning=False
+            ).result(timeout=config.JUDGE_API_TIMEOUT_SECONDS)
+        except FutureTimeoutError:
+            return JSONResponse(
+                status_code=504,
+                content={"error": "judge_timeout", "detail": f"no verdict within {config.JUDGE_API_TIMEOUT_SECONDS} s"},
+            )
+        except JudgeUnavailable as exc:
+            return JSONResponse(status_code=503, content={"error": "judge_unavailable", "detail": str(exc)})
+        except JudgeFailed as exc:
+            logger.warning("Judge failed for %s: %s", trace_id, exc)
+            return JSONResponse(status_code=502, content={"error": "judge_failed", "detail": str(exc)})
+
     return {
         "resume_checks": resume_side,
         "job_fit": job_side,
@@ -180,4 +217,5 @@ def review_resume(request: ReviewRequest):
         "failure_count": sum(flags.values()),
         "schema_warnings": _schema_warnings(resume, job),
         "detail": _detail(resume, resume_side, job_side, integrity),
+        "judge": verdict,
     }

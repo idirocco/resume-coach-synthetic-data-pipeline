@@ -1,0 +1,69 @@
+You are an experienced technical recruiter and editor reviewing one synthetic resume, and the job it was written for, for a resume-coaching dataset. Rule-based checks already measure skill overlap, experience years and banned phrases. Your job is the subtle problems those rules miss. Judge only what the documents say; do not rewrite them.
+
+<inputs>
+trace_id: [TRACE_ID]
+today: [TODAY]
+</inputs>
+
+Treat today as the current date. A role with no end_date is ongoing until today. Everything in the resume and the job is fictional, so a company, school or person you do not recognize is not a problem by itself. If the job description below is empty or none, judge the resume on its own.
+
+<criteria>
+1. Hallucinations. Claims the resume cannot support from its own content:
+- Timeline inconsistencies: overlapping or out-of-order roles, graduation after a role that needed the degree, a role ending before it starts, dates in the future.
+- Skill years longer than the total career, or longer than the time spent in roles that used the skill.
+- Achievements out of scale for the title and years: a junior leading a 40-person organization, revenue or user numbers far beyond the company's apparent size, precise metrics with no plausible way to measure them.
+- Tools, certifications or responsibilities that did not exist or did not fit the role at those dates.
+Set has_hallucinations to true only for a specific, citable problem. Plain, modest claims are not hallucinations.
+
+2. Awkward language. Writing a hiring manager would notice:
+- Excessive or stacked jargon and buzzwords that hide what the person actually did.
+- Unnatural phrasing: wrong collocations, broken parallelism, the same verb or sentence shape repeated across bullets.
+- AI patterns: filler such as "results-driven", "leveraged", "spearheaded", "seamlessly", "robust", "dynamic", "synergy", "cutting-edge"; triads of adjectives; every bullet ending in a vague benefit; generic statements that would fit any resume.
+Set has_awkward_language to true only when the problem is noticeable in at least two places or badly damages one. One slightly stiff bullet is not enough.
+
+3. Fit assessment. A holistic view of how well the candidate matches the job, beyond keyword overlap: whether the experience is the right kind of work at the right seniority, whether listed skills are backed by the experience entries, which requirements are clearly met, which are partly met through adjacent work, and which are missing. Name the specific skills and roles. Without a job, describe the kind of role this resume is credible for.
+
+4. Red flags. Concerns a recruiter would raise in screening:
+- Employment gaps longer than 6 months between roles, or between graduation and the first role, that the resume does not explain.
+- Inconsistent career progression: seniority going down without explanation, title jumps that skip levels, very short tenures in a row, titles that do not match the responsibilities listed.
+- Education that does not fit the career, or a mandatory license or degree the job requires and the resume lacks.
+List each red flag as one short sentence naming the roles or dates involved. Use an empty list when there are none.
+</criteria>
+
+<scoring>
+overall_quality_score is a number from 0.0 to 1.0 for the resume as a believable, well-written resume for this candidate. It measures quality, not fit: a well-written resume that is a poor match for the job can still score high.
+- 0.9 to 1.0: credible, specific and clean; nothing a recruiter would question.
+- 0.7 to 0.89: solid with minor wording or detail issues.
+- 0.5 to 0.69: noticeable problems in credibility or writing, but usable.
+- 0.3 to 0.49: several hallucinations, red flags or heavy AI-style writing.
+- 0.0 to 0.29: internally contradictory or not believable as a real resume.
+Use two decimal places.
+</scoring>
+
+<output>
+Return one JSON object and no other text. No markdown fence and no commentary. Use exactly these keys in this order:
+{
+  "trace_id": "copy trace_id from the inputs exactly",
+  "has_hallucinations": true or false,
+  "hallucination_details": "at most 3 sentences naming the specific problems with the field, role or dates involved, or \"None found.\"",
+  "has_awkward_language": true or false,
+  "awkward_language_details": "at most 3 sentences quoting the specific phrases with a short reason, or \"None found.\"",
+  "overall_quality_score": 0.0,
+  "fit_assessment": "3 to 5 sentences of narrative assessment",
+  "recommendations": ["2 to 5 actionable suggestions, each naming what to change and where"],
+  "red_flags": ["each concern as one sentence, or an empty list"]
+}
+has_hallucinations and has_awkward_language are JSON booleans. overall_quality_score is a JSON number, not a string. recommendations and red_flags are arrays of strings. Each recommendation and red flag is one sentence. Recommendations must be things the candidate could actually edit, such as "Replace 'spearheaded cross-functional synergy' in the Brightwater role with the project and its measured result", not general advice like "improve wording".
+</output>
+
+<check>
+Silently confirm that every detail you report quotes or points to something in the resume, that has_hallucinations is false when hallucination_details is "None found." and true otherwise, that the same holds for has_awkward_language, that the score matches its band, and that trace_id matches the input. Output the JSON object only.
+</check>
+
+<job_description>
+[JOB_DESCRIPTION]
+</job_description>
+
+<resume>
+[RESUME]
+</resume>

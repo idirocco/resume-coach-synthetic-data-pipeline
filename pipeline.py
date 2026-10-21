@@ -10,7 +10,7 @@ from startup_checks import run_startup_checks
 
 def parse_arguments(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("step", nargs="?", choices=("step1", "step2", "correct", "step3", "step4"))
+    parser.add_argument("step", nargs="?", choices=("step1", "step2", "correct", "step3", "step4", "judge"))
     only_group = parser.add_mutually_exclusive_group()
     only_group.add_argument("--only-jobs", action="store_true")
     only_group.add_argument("--only-resumes", action="store_true")
@@ -20,7 +20,10 @@ def parse_arguments(argv=None):
         action="store_true",
         help="Compare this validation result with the previous comparable run in iteration_log.md",
     )
+    parser.add_argument("--limit", type=int, help="judge only: number of valid pairs to judge (default: all)")
     args = parser.parse_args(argv)
+    if args.limit is not None and args.step != "judge":
+        parser.error("--limit only applies to the judge step")
     if args.log and (
         args.step == "step1"
         or (args.step is None and any((args.only_jobs, args.only_resumes, args.only_pairs)))
@@ -44,6 +47,12 @@ def main(argv=None):
     step = args.step or "step1"
     checks_step = "all" if run_complete_pipeline or run_jobs_validation else step
     run_startup_checks(checks_step, require_api_key=only in {None, "jobs"})
+
+    if step == "judge":
+        from llm_judge import judge_latest_run
+
+        judge_latest_run(limit=args.limit)
+        return
 
     if step == "step4":
         from step4_visualization import visualize_latest_run

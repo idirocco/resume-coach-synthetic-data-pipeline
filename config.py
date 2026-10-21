@@ -32,8 +32,17 @@ MAX_ATTEMPTS = 3
 # Upper bound for simultaneous LLM requests.
 MAX_CONCURRENT_REQUESTS = 3
 
+# LLM judge: a different model family from MODEL, so the judge does not grade its own generator's output.
+JUDGE_MODEL = "anthropic/claude-opus-5.5"
+JUDGE_TEMPERATURE = 0.0
+# Turns per pair in `pipeline.py judge`. The API makes one attempt without reasoning and gives up after
+# JUDGE_API_TIMEOUT_SECONDS to stay inside its 10 s budget.
+JUDGE_MAX_ATTEMPTS = 2
+JUDGE_API_TIMEOUT_SECONDS = 9.0
+
 PROMPTS_DIR = ROOT / "prompts" / "job_description"
 RESUME_PROMPTS_DIR = ROOT / "prompts" / "resume"
+JUDGE_PROMPT_PATH = ROOT / "prompts" / "llm_judge.txt"
 OUTPUT_DIR = ROOT / "output"
 VISUALIZATIONS_DIR = ROOT / "visualizations"
 
