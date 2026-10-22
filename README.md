@@ -45,7 +45,7 @@ Jobs-only and resume-only require `OPENROUTER_API_KEY` in the environment or `.e
 
 ## Generation
 
-Generation uses the OpenRouter model `openai/gpt-oss-20b` (`MODEL` in `config.py`). Six job-description templates (`prompts/job_description/`) are cycled across ten BLS industries. Each job gets `RESUMES_PER_JOB` resumes at controlled fit levels (`excellent`, `good`, `partial`, `poor`, `complete_mismatch`) and in five writing styles. It writes `jobs_<UTC timestamp>.jsonl`, `resumes_<UTC timestamp>.jsonl`, and `pairs_<UTC timestamp>.jsonl` under `output/`. Pair rows reference job and resume trace IDs. Job replies are only decoded as JSON; their schema checks happen in step 2. Resume replies are also validated against the resume schema, the job's required skills and the fit level. A failed reply is sent back to the model with its error, for up to `MAX_ATTEMPTS` turns.
+Generation uses the OpenRouter model `openai/gpt-oss-20b` (`MODEL` in `config.py`). Six job-description templates (`prompts/job_description/`) are cycled across ten BLS industries. Each job gets `RESUMES_PER_JOB` resumes at controlled fit levels (`excellent`, `good`, `partial`, `poor`, `complete_mismatch`) and in five writing styles. Styles rotate per job (`plan_resume_styles`), so across any five consecutive jobs every style appears at every fit level once. It writes `jobs_<UTC timestamp>.jsonl`, `resumes_<UTC timestamp>.jsonl`, and `pairs_<UTC timestamp>.jsonl` under `output/`. Pair rows reference job and resume trace IDs. Job replies are only decoded as JSON; their schema checks happen in step 2. Resume replies are also validated against the resume schema, the job's required skills and the fit level. A failed reply is sent back to the model with its error, for up to `MAX_ATTEMPTS` turns.
 
 ## Validation
 
@@ -87,7 +87,7 @@ It writes `failure_labels_<timestamp>.jsonl` (flags plus the numbers behind them
 
 ## Charts (step 4)
 
-Step 4 writes 10 PNGs and `failure_rates_table.csv` to `visualizations/<timestamp>/`. The charts cover flag correlation, failure rates by fit level, job template, writing style and niche vs standard roles, the schema-error heatmap, hallucinations by seniority, skills overlap by fit level, and correction success and attempts. Target lines come from `FAILURE_TARGETS` in `config.py`. A chart with no data is written as a placeholder PNG that says why.
+Step 4 writes 10 PNGs and `failure_rates_table.csv` to `visualizations/<timestamp>/`. The charts cover flag correlation, failure rates by fit level, job template, writing style and niche vs standard roles, the schema-error heatmap, hallucinations by seniority, skills overlap by fit level, and correction success and attempts. Target lines come from `FAILURE_TARGETS` in `config.py`. A chart with no data is written as a placeholder PNG that says why. Runs generated before the style rotation fix tie each writing style to one fit level. For those runs, step 3 lists the confound under `confounded_groups` in `failure_stats_<timestamp>.json`, and the writing-style chart is a placeholder.
 
 ### Latest run
 

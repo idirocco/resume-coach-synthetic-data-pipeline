@@ -155,3 +155,16 @@
 | After Metric | Reasoning off plus length caps in the prompt: 5 live requests took 4.2-8.7 s, all 200. CLI on the first 3 valid pairs of 20261014T132013219616Z: 0 failed, judge hallucination rate 67% vs rule flag 0%, awkward language 33% vs 0%, mean quality score 0.67. 123 tests pass (14 new) |
 | Delta | API judge latency from 11.5-17.1 s to 4.2-8.7 s (now inside the <10 s budget) |
 | Keep/Revert | Keep the judge. Pending on whether its strictness is right: 3 pairs is too few to calibrate, and the judge flags hallucinations the rules do not, for example skill years longer than the roles that use them |
+
+## Iteration 12
+
+| Field | Value |
+| --- | --- |
+| Date | 2026-10-22 |
+| Component | Resume Generator, Labeler, Visualization |
+| Change | Step 1 assigns writing styles with `plan_resume_styles(job_index, count)`: slot i of job j gets `RESUME_WRITING_STYLES[(j + i) % 5]`. This is used in both the full path (`item["index"]`) and `--only-resumes` (stored `index`, else the record's position). Fit levels and skill rotation are unchanged. Step 3 adds `confounded_groups` to `failure_stats_*.json` when `resume_writing_style` is fully determined by `fit_level`, and step 4 writes a placeholder writing-style chart in that case |
+| Reason | Writing style was chosen with the same index as fit level, so the style breakdown repeated the fit-level breakdown |
+| Before Metric | Run 20261014T132013219616Z: 5 of 25 (fit level, writing style) combinations present; each style mapped to exactly one fit level |
+| After Metric | Plan for 10 jobs × 5 resumes: 25 of 25 combinations, each twice. Generated data is Not measured until a new step 1 run. Re-running steps 3-4 on 20261014T132013219616Z reports the confound and writes the placeholder. 134 tests pass (11 new) |
+| Delta | Plan coverage from 5 to 25 of 25 combinations; generated data Not measured |
+| Keep/Revert | Keep. Tests pass |
