@@ -135,10 +135,6 @@ class Step1SelectionTests(unittest.TestCase):
             self.assertFalse(result["jobs_path"])
             self.assertFalse(result["resumes_path"])
 
-
-if __name__ == "__main__":
-    unittest.main()
-
 class ResumePromptTests(unittest.TestCase):
     JOB = {
         "title": "Data Engineer",
@@ -174,3 +170,124 @@ class ResumePromptTests(unittest.TestCase):
         self.assertNotIn("jd-1", prompt)
         self.assertIn("4 years in total, at mid level", prompt)
         self.assertIn('["SQL", "Airflow", "Spark", "dbt"]', prompt)
+
+
+class ResumeStylePlanTests(unittest.TestCase):
+    def test_each_job_gets_every_style_once(self):
+        from step1_generation import RESUME_WRITING_STYLES, plan_resume_styles
+
+        for job_index in range(12):
+            self.assertEqual(sorted(plan_resume_styles(job_index, 5)), sorted(RESUME_WRITING_STYLES))
+
+    def test_five_consecutive_jobs_cover_every_fit_style_pair_once(self):
+        from collections import Counter
+
+        from step1_generation import FIT_LEVELS, RESUME_WRITING_STYLES, plan_resume_fits, plan_resume_styles
+
+        pairs = Counter(
+            pair
+            for job_index in range(5)
+            for pair in zip(plan_resume_fits(5), plan_resume_styles(job_index, 5))
+        )
+        self.assertEqual(len(pairs), len(FIT_LEVELS) * len(RESUME_WRITING_STYLES))
+        self.assertEqual(set(pairs.values()), {1})
+
+    def test_job_zero_keeps_the_previous_order(self):
+        from step1_generation import RESUME_WRITING_STYLES, plan_resume_styles
+
+        self.assertEqual(plan_resume_styles(0, 5), RESUME_WRITING_STYLES)
+
+    def test_counts_other_than_five_keep_rotating(self):
+        from step1_generation import RESUME_WRITING_STYLES, plan_resume_styles
+
+        n = len(RESUME_WRITING_STYLES)
+        for count in (7, 10):
+            for job_index in (0, 3):
+                styles = plan_resume_styles(job_index, count)
+                self.assertEqual(len(styles), count)
+                self.assertEqual(styles, [RESUME_WRITING_STYLES[(job_index + i) % n] for i in range(count)])
+
+
+class ResumeStyleCallSiteTests(unittest.TestCase):
+    JOB = {
+        "title": "Data Engineer",
+        "company": {"name": "Acme"},
+        "description": "Build pipelines.",
+        "responsibilities": ["Own ETL"],
+        "requirements": {
+            "required_skills": ["Python", "SQL", "Airflow"],
+            "experience_years": 3,
+            "experience_level": "mid",
+        },
+        "metadata": {"trace_id": "jd-1"},
+    }
+
+    @staticmethod
+    def styles_by_job(generate):
+        # generate_resume_one(client, job, template, fit_level, writing_style, resume_index)
+        styles = {}
+        for call in generate.call_args_list:
+            job, writing_style, resume_index = call.args[1], call.args[4], call.args[5]
+            styles[(job["metadata"]["trace_id"], resume_index)] = writing_style
+        return styles
+
+    def job(self, trace_id):
+        return {**self.JOB, "metadata": {"trace_id": trace_id}}
+
+    def test_full_step1_rotates_styles_by_job_index(self):
+        from step1_generation import RESUME_WRITING_STYLES
+
+        jobs = {"template-0": self.job("jd-0"), "template-1": self.job("jd-1")}
+        batch = [
+            {"index": 0, "prompt_template": "template-0", "industry": "industry"},
+            {"index": 1, "prompt_template": "template-1", "industry": "industry"},
+        ]
+        resume = {"metadata": {"trace_id": "resume", "fit_level": "excellent"}}
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with (
+                patch("step1_generation.OUTPUT_DIR", Path(temporary_directory)),
+                patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}),
+                patch("step1_generation.OpenAI"),
+                patch("step1_generation.load_templates", return_value={"template-0": "p", "template-1": "p"}),
+                patch("step1_generation.load_resume_template", return_value="prompt"),
+                patch("step1_generation.plan_batch", return_value=batch),
+                patch("step1_generation.generate_one", side_effect=lambda c, name, t, i: (jobs[name], None)),
+                patch("step1_generation.generate_resume_one", return_value=(resume, None)) as generate,
+            ):
+                generate_job_descriptions()
+
+        styles = self.styles_by_job(generate)
+        self.assertEqual(styles[("jd-0", 0)], RESUME_WRITING_STYLES[0])
+        self.assertEqual(styles[("jd-1", 0)], RESUME_WRITING_STYLES[1])
+
+    def test_only_resumes_rotates_by_stored_index_or_position(self):
+        from step1_generation import RESUME_WRITING_STYLES
+
+        records = [
+            {"index": 0, "job_description": self.job("jd-0")},
+            {"index": 1, "job_description": self.job("jd-1")},
+            {"job_description": self.job("jd-legacy")},
+        ]
+        resume = {"metadata": {"trace_id": "resume", "fit_level": "excellent"}}
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output_dir = Path(temporary_directory)
+            (output_dir / "jobs_20261001T000000Z.jsonl").write_text(
+                "".join(json.dumps(record) + "\n" for record in records), encoding="utf-8"
+            )
+            with (
+                patch("step1_generation.OUTPUT_DIR", output_dir),
+                patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}),
+                patch("step1_generation.OpenAI"),
+                patch("step1_generation.load_resume_template", return_value="prompt"),
+                patch("step1_generation.generate_resume_one", return_value=(resume, None)) as generate,
+            ):
+                generate_job_descriptions(only="resumes")
+
+        styles = self.styles_by_job(generate)
+        self.assertEqual(styles[("jd-0", 0)], RESUME_WRITING_STYLES[0])
+        self.assertEqual(styles[("jd-1", 0)], RESUME_WRITING_STYLES[1])
+        self.assertEqual(styles[("jd-legacy", 0)], RESUME_WRITING_STYLES[2])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -212,14 +212,16 @@ def generate_only_resumes():
     failed = 0
 
     with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_REQUESTS) as executor:
-        for record in job_records:
+        for position, record in enumerate(job_records):
             job = record["job_description"]
+            job_index = record["index"] if isinstance(record.get("index"), int) else position
             try:
                 render_resume_prompt(resume_template, job, fit_plan[0], RESUME_WRITING_STYLES[0])
                 job["metadata"]["trace_id"]
             except (KeyError, TypeError) as exc:
                 print(f"  resume generation skipped: job lacks prompt fields ({exc})")
                 continue
+            style_plan = plan_resume_styles(job_index, len(fit_plan))
             futures = [
                 executor.submit(
                     generate_resume_one,
@@ -227,7 +229,7 @@ def generate_only_resumes():
                     job,
                     resume_template,
                     fit_level,
-                    RESUME_WRITING_STYLES[index % len(RESUME_WRITING_STYLES)],
+                    style_plan[index],
                     index,
                 )
                 for index, fit_level in enumerate(fit_plan)
@@ -309,6 +311,17 @@ def plan_resume_fits(count):
     # if not 5 <= count <= 10:
     #     raise ValueError("RESUMES_PER_JOB must be between 5 and 10")
     return [FIT_LEVELS[index % len(FIT_LEVELS)] for index in range(count)]
+
+
+def plan_resume_styles(job_index, count):
+    """Writing style per resume slot, rotated by job so style and fit level are not confounded.
+
+    Resume slot i gets fit FIT_LEVELS[i % 5] (plan_resume_fits) and style
+    RESUME_WRITING_STYLES[(job_index + i) % n]. Over any n consecutive jobs every
+    (fit level, style) pair appears exactly once (a Latin square).
+    """
+    n = len(RESUME_WRITING_STYLES)
+    return [RESUME_WRITING_STYLES[(job_index + i) % n] for i in range(count)]
 
 
 def fit_match_bounds(required_skill_count, fit_level):
@@ -553,8 +566,9 @@ def generate_job_descriptions(only=None):
                 continue
 
             resume_futures = []
+            style_plan = plan_resume_styles(item["index"], len(fit_plan))
             for resume_index, fit_level in enumerate(fit_plan):
-                writing_style = RESUME_WRITING_STYLES[resume_index % len(RESUME_WRITING_STYLES)]
+                writing_style = style_plan[resume_index]
                 print(f"  resume {resume_index + 1}/{len(fit_plan)}: {fit_level} ({writing_style})")
                 resume_futures.append(
                     executor.submit(
