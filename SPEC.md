@@ -29,9 +29,9 @@ and provide actionable feedback. It should be able to:
    - `GET /health` — health check
    - `GET /analysis/failure-rates` — aggregate statistics
 
-Steps 1-4 are implemented (`pipeline.py` dispatches to each). Step 5 is
-implemented in `api.py` / `api_models.py` (`uvicorn api:app`) with all three
-endpoints. The optional LLM-as-Judge is `llm_judge.py` (`pipeline.py judge`,
+Steps 1-4 are implemented (`src/pipeline.py` dispatches to each). Step 5 is
+implemented in `src/api/api.py` / `src/api/api_models.py` (`uvicorn src.api.api:app`) with all three
+endpoints. The optional LLM-as-Judge is `src/llm_judge.py` (`src/pipeline.py judge`,
 or `POST /review-resume?judge=1`).
 
 ## Success metrics
@@ -75,11 +75,11 @@ The labeling system must calculate these metrics for every resume-job pair:
 
 - Python 3.10+
 - Pydantic — schema validation with detailed error reporting
-- **Instructor** — structured LLM outputs (not yet adopted; current `step1_generation.py` parses raw JSON from chat completions manually via `parse_json_object`/regex instead)
-- LLM generation currently uses OpenRouter's `meta-llama/llama-3.1-8b-instruct` model via the `openai` SDK. The provider/model choice is set in `config.py`.
+- **Instructor** — structured LLM outputs (not yet adopted; current `src/step1_generation.py` parses raw JSON from chat completions manually via `parse_json_object`/regex instead)
+- LLM generation currently uses OpenRouter's `meta-llama/llama-3.1-8b-instruct` model via the `openai` SDK. The provider/model choice is set in `src/config.py`.
 - Pandas — data manipulation and analysis (not yet a dependency)
 - Matplotlib/Seaborn — visualization generation (not yet a dependency)
-- FastAPI — REST API framework (`api.py`, served with uvicorn)
+- FastAPI — REST API framework (`src/api/api.py`, served with uvicorn)
 
 ## Data schema requirements
 
@@ -90,12 +90,12 @@ The labeling system must calculate these metrics for every resume-job pair:
 - **Skills**: name, proficiency_level (Beginner/Intermediate/Advanced/Expert), optional years
 - **Metadata**: trace_id, generated_at, prompt_template, fit_level, writing_style
 
-### Job description schema (implemented — see `schemas.py`)
+### Job description schema (implemented — see `src/schemas.py`)
 - **Company**: name, industry, size, location
 - **Requirements**: required_skills[], preferred_skills[], education, experience_years, experience_level
 - **Metadata**: trace_id, generated_at, is_niche_role (boolean flag)
 
-The current `JobDescription` model in `schemas.py` matches this shape and
+The current `JobDescription` model in `src/schemas.py` matches this shape and
 additionally enforces per-template constraints (skill counts, sentence
 counts, allowed company sizes/experience levels) that go beyond this spec —
 see `CLAUDE.md` for how `TEMPLATE_CONSTRAINTS` works.

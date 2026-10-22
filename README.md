@@ -10,27 +10,27 @@ cp .env.example .env         # then set OPENROUTER_API_KEY
 python3 -m pytest            # tests make no LLM calls
 ```
 
-Generation, correction and the judge call OpenRouter and need `OPENROUTER_API_KEY`. Steps 2-4 and the API (without `?judge=1`) run offline. `startup_checks.py` stops with an actionable message when a package or the key is missing. Batch size, models, temperature, retries, industries and templates are set in `config.py`.
+Generation, correction and the judge call OpenRouter and need `OPENROUTER_API_KEY`. Steps 2-4 and the API (without `?judge=1`) run offline. `src/startup_checks.py` stops with an actionable message when a package or the key is missing. Batch size, models, temperature, retries, industries and templates are set in `src/config.py`.
 
 ## Commands
 
 ```bash
-python3 pipeline.py          # step 1 -> step 2 -> correction -> step 3 -> step 4
-python3 pipeline.py --log    # same, and append the validation result to iteration_log.md
-python3 pipeline.py step1    # generate data
-python3 pipeline.py step1 --only-jobs
-python3 pipeline.py step1 --only-resumes
-python3 pipeline.py step1 --only-pairs
-python3 pipeline.py step2    # validate the newest complete source run
-python3 pipeline.py step2 --only-jobs
-python3 pipeline.py step2 --only-resumes
-python3 pipeline.py step2 --only-pairs
-python3 pipeline.py correct  # LLM correction of the newest step 2 report's invalid records
-python3 pipeline.py step3    # failure labels from the newest pairs_enriched file
-python3 pipeline.py step4    # charts from the newest failure labels
-python3 pipeline.py judge    # LLM judge over the newest pairs_enriched file
-python3 pipeline.py judge --limit 10
-python3 judge_chart.py       # chart of output/judge_output.json -> docs/judge_summary.png
+python3 -m src.pipeline          # step 1 -> step 2 -> correction -> step 3 -> step 4
+python3 -m src.pipeline --log    # same, and append the validation result to iteration_log.md
+python3 -m src.pipeline step1    # generate data
+python3 -m src.pipeline step1 --only-jobs
+python3 -m src.pipeline step1 --only-resumes
+python3 -m src.pipeline step1 --only-pairs
+python3 -m src.pipeline step2    # validate the newest complete source run
+python3 -m src.pipeline step2 --only-jobs
+python3 -m src.pipeline step2 --only-resumes
+python3 -m src.pipeline step2 --only-pairs
+python3 -m src.pipeline correct  # LLM correction of the newest step 2 report's invalid records
+python3 -m src.pipeline step3    # failure labels from the newest pairs_enriched file
+python3 -m src.pipeline step4    # charts from the newest failure labels
+python3 -m src.pipeline judge    # LLM judge over the newest pairs_enriched file
+python3 -m src.pipeline judge --limit 10
+python3 -m src.judge_chart       # chart of output/judge_output.json -> docs/judge_summary.png
 ```
 
 Every step after step 1 reads the newest matching files in `output/`, so steps can be rerun one at a time.
@@ -45,7 +45,7 @@ Jobs-only and resume-only require `OPENROUTER_API_KEY` in the environment or `.e
 
 ## Generation
 
-Generation uses the OpenRouter model `openai/gpt-oss-20b` (`MODEL` in `config.py`). Six job-description templates (`prompts/job_description/`) are cycled across ten BLS industries. Each job gets `RESUMES_PER_JOB` resumes at controlled fit levels (`excellent`, `good`, `partial`, `poor`, `complete_mismatch`) and in five writing styles. Styles rotate per job (`plan_resume_styles`), so across any five consecutive jobs every style appears at every fit level once. It writes `jobs_<UTC timestamp>.jsonl`, `resumes_<UTC timestamp>.jsonl`, and `pairs_<UTC timestamp>.jsonl` under `output/`. Pair rows reference job and resume trace IDs. Job replies are only decoded as JSON; their schema checks happen in step 2. Resume replies are also validated against the resume schema, the job's required skills and the fit level. A failed reply is sent back to the model with its error, for up to `MAX_ATTEMPTS` turns.
+Generation uses the OpenRouter model `openai/gpt-oss-20b` (`MODEL` in `src/config.py`). Six job-description templates (`prompts/job_description/`) are cycled across ten BLS industries. Each job gets `RESUMES_PER_JOB` resumes at controlled fit levels (`excellent`, `good`, `partial`, `poor`, `complete_mismatch`) and in five writing styles. Styles rotate per job (`plan_resume_styles`), so across any five consecutive jobs every style appears at every fit level once. It writes `jobs_<UTC timestamp>.jsonl`, `resumes_<UTC timestamp>.jsonl`, and `pairs_<UTC timestamp>.jsonl` under `output/`. Pair rows reference job and resume trace IDs. Job replies are only decoded as JSON; their schema checks happen in step 2. Resume replies are also validated against the resume schema, the job's required skills and the fit level. A failed reply is sent back to the model with its error, for up to `MAX_ATTEMPTS` turns.
 
 ## Validation
 
@@ -55,7 +55,7 @@ Step2 validates job descriptions, resumes, and pair records using Pydantic, incl
 - `--only-resumes` validates the newest jobs and resumes files; job records are checked as dependencies, but only resume results are included in the report.
 - `--only-pairs` validates the newest jobs, resumes, and pairs files; jobs and resumes are checked as dependencies, but only pair results are included in the report.
 
-Selected modes choose the newest file for each required type independently, so separately generated stages can be checked together. Step2 reports a clear missing-file error when a required source is unavailable. Running `python3 pipeline.py` with no arguments generates all three artifact types and validates the exact run it just generated. Use `step1` or `step2` to run a single step.
+Selected modes choose the newest file for each required type independently, so separately generated stages can be checked together. Step2 reports a clear missing-file error when a required source is unavailable. Running `python3 -m src.pipeline` with no arguments generates all three artifact types and validates the exact run it just generated. Use `step1` or `step2` to run a single step.
 
 Each validation invocation writes three artifacts under `output/`, named with its UTC timestamp:
 
@@ -68,7 +68,7 @@ Schema failures reject a record. Hallucination and awkward-language checks only 
 
 ## Correction
 
-`python3 pipeline.py correct` (also part of the default run) sends each invalid job or resume back to the model with its validation errors, for up to `MAX_ATTEMPTS` turns. Pipeline-assigned IDs are restored after each reply, then the corrected files are validated again. Pair errors are not correctable. It writes `corrected_jobs_*`, `corrected_resumes_*`, a per-turn `correction_log_*.jsonl` and a `correction_report_*.json` with success rates by category and attempt.
+`python3 -m src.pipeline correct` (also part of the default run) sends each invalid job or resume back to the model with its validation errors, for up to `MAX_ATTEMPTS` turns. Pipeline-assigned IDs are restored after each reply, then the corrected files are validated again. Pair errors are not correctable. It writes `corrected_jobs_*`, `corrected_resumes_*`, a per-turn `correction_log_*.jsonl` and a `correction_report_*.json` with success rates by category and attempt.
 
 ## Failure labels (step 3)
 
@@ -81,13 +81,13 @@ Step 3 labels every pair in the newest `pairs_enriched_*.jsonl` with six rule-ba
 | `seniority_mismatch_flag` | inferred seniority is more than one level from the job's |
 | `missing_core_skills_flag` | one of the job's first `CORE_SKILL_COUNT` (3) required skills is missing |
 | `hallucination_flag` | e.g. 20+ expert skills, an entry-level overclaim, or an impossible timeline |
-| `awkward_language_flag` | buzzword density or repetition passes the limits in `resume_metrics.py` |
+| `awkward_language_flag` | buzzword density or repetition passes the limits in `src/resume_metrics.py` |
 
-It writes `failure_labels_<timestamp>.jsonl` (flags plus the numbers behind them) and `failure_stats_<timestamp>.json` (overall rates, rates by fit level, template and writing style, flag correlation, distributions and a spot-check sample). Thresholds live in `resume_metrics.py` and `config.py`, and steps 2, 3 and the API share them.
+It writes `failure_labels_<timestamp>.jsonl` (flags plus the numbers behind them) and `failure_stats_<timestamp>.json` (overall rates, rates by fit level, template and writing style, flag correlation, distributions and a spot-check sample). Thresholds live in `src/resume_metrics.py` and `src/config.py`, and steps 2, 3 and the API share them.
 
 ## Charts (step 4)
 
-Step 4 writes 10 PNGs and `failure_rates_table.csv` to `visualizations/<timestamp>/`. The charts cover flag correlation, failure rates by fit level, job template, writing style and niche vs standard roles, the schema-error heatmap, hallucinations by seniority, skills overlap by fit level, and correction success and attempts. Target lines come from `FAILURE_TARGETS` in `config.py`. A chart with no data is written as a placeholder PNG that says why. Runs generated before the style rotation fix tie each writing style to one fit level. For those runs, step 3 lists the confound under `confounded_groups` in `failure_stats_<timestamp>.json`, and the writing-style chart is a placeholder.
+Step 4 writes 10 PNGs and `failure_rates_table.csv` to `visualizations/<timestamp>/`. The charts cover flag correlation, failure rates by fit level, job template, writing style and niche vs standard roles, the schema-error heatmap, hallucinations by seniority, skills overlap by fit level, and correction success and attempts. Target lines come from `FAILURE_TARGETS` in `src/config.py`. A chart with no data is written as a placeholder PNG that says why. Runs generated before the style rotation fix tie each writing style to one fit level. For those runs, step 3 lists the confound under `confounded_groups` in `failure_stats_<timestamp>.json`, and the writing-style chart is a placeholder.
 
 ### Latest run
 
@@ -129,7 +129,7 @@ A "partial"-fit pair from the run above, `907401ce14ce`. It is abridged; full re
 
 ## LLM judge
 
-`python3 pipeline.py judge` sends every valid pair in the newest `pairs_enriched_*.jsonl` to a second model (`JUDGE_MODEL` in `config.py`, `anthropic/claude-haiku-5.5`, a different family from the generator) with the prompt in `prompts/llm_judge.txt`. The judge looks for what the step 3 rules miss: hallucinations, awkward language, a narrative fit assessment, and red flags such as gaps or inconsistent progression. Resume and job metadata are not sent, so the intended fit level cannot bias it. It is optional, is not part of the default run, and needs `OPENROUTER_API_KEY`; `--limit N` judges only the first N pairs.
+`python3 -m src.pipeline judge` sends every valid pair in the newest `pairs_enriched_*.jsonl` to a second model (`JUDGE_MODEL` in `src/config.py`, `anthropic/claude-haiku-5.5`, a different family from the generator) with the prompt in `prompts/llm_judge.txt`. The judge looks for what the step 3 rules miss: hallucinations, awkward language, a narrative fit assessment, and red flags such as gaps or inconsistent progression. Resume and job metadata are not sent, so the intended fit level cannot bias it. It is optional, is not part of the default run, and needs `OPENROUTER_API_KEY`; `--limit N` judges only the first N pairs.
 
 It writes `output/judge_output.json`, overwritten on each run, with:
 
@@ -141,18 +141,18 @@ It writes `output/judge_output.json`, overwritten on each run, with:
 
 ![LLM judge summary](docs/judge_summary.png)
 
-The judge ran on all 49 valid pairs from run `20261014T132013219616Z` with `anthropic/claude-haiku-5.5` (`docs/judge_summary.png`, regenerate with `python3 judge_chart.py`):
+The judge ran on all 49 valid pairs from run `20261022T144210765022Z`, the first run after the writing-style rotation fix, with `anthropic/claude-haiku-5.5` and 0 failures. The chart is `docs/judge_summary.png`; regenerate it with `python3 -m src.judge_chart`.
 
-- **The judge finds what the rules miss.** It flagged hallucinations in 67% of pairs and awkward language in 71%. The step 3 rules flagged 0% of either, so agreement is 33% and 29%. The rules only catch blatant patterns, such as 20+ expert skills or a high buzzword density, while the judge catches implausible claims. One example is a "good"-fit RN resume claiming medication administration "for 40+ patients daily". Another is a non-licensed Patient Care Associate "leading interdisciplinary meetings".
-- **Every pair has at least one red flag.** 30 of 49 pairs have an unexplained employment gap, most often between graduation and the first role. Other recurring flags are responsibilities that exceed the job title and skill years longer than the roles that used them.
-- **Quality score barely tracks fit.** The mean is 0.56. By fit level it runs from 0.60 for "excellent" to 0.49 for "poor", and "complete mismatch" scores 0.57. The score rates the resume itself, while fit is covered by `fit_assessment` and the step 3 flags.
+- **The judge finds what the rules miss.** It flagged hallucinations in 67% of pairs (33 of 49) and awkward language in 65% (32). The step 3 rules flagged one pair for each, so agreement is 35% and 37%. The rules catch only blatant patterns, and the one pair they flagged has every responsibility and achievement filled with the placeholder "OK". The judge catches claims a staff role could not own, such as an "excellent"-fit RN crediting themselves with "decreasing average length of stay 1.2 days". On awkward language it also caught corrupted text in an "excellent" resume ("coordinating 15აქვს stakeholders", "Achieved a rozen 92%"), which passed every schema and rule check.
+- **Every pair has at least one red flag.** There are 160 flags in all. 29 of 49 pairs have an unexplained employment gap, most often between graduation and the first role. 18 pairs have less experience than the job requires, and 16 list skill years longer than the roles that used them. Seven are missing a license or security clearance the role needs.
+- **Quality score does not track fit.** The mean is 0.57, and by fit level it runs from 0.50 for "poor" to 0.63 for "partial". "Excellent" scores 0.56, below "complete mismatch" at 0.59. The score rates the resume itself; fit is covered by `fit_assessment` and the step 3 flags.
 
-These numbers are a snapshot of one 49-pair run. `output/` is not committed; this run's verdicts are archived in `output/archive/pre-style-fix/judge_output.json`, so regenerate the chart with `python3 judge_chart.py output/archive/pre-style-fix/judge_output.json`.
+These numbers are a snapshot of one 49-pair run, and `output/` is not committed. The previous run's verdicts (`20261014T132013219616Z`, before the style fix) are archived in `output/archive/pre-style-fix/judge_output.json`.
 
 ## Review API
 
 ```bash
-uvicorn api:app --reload    # http://localhost:8000, interactive docs at /docs
+uvicorn src.api.api:app --reload    # http://localhost:8000, interactive docs at /docs
 ```
 
 The API scores resumes with the same functions as step 3, so its flags match `failure_labels_*.jsonl` for the same pair. It needs no API key unless `?judge=1` is used.
