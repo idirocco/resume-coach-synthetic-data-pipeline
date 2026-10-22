@@ -91,7 +91,7 @@ Step 4 writes 10 PNGs and `failure_rates_table.csv` to `visualizations/<timestam
 
 ### Latest run
 
-Run `20261014T132013219616Z`: 10 jobs and 49 resumes. All 108 records (jobs, resumes and pairs) passed validation on the first try, so the correction step had nothing to fix. The copies below are in `docs/` because `visualizations/` is not committed.
+Run `20261014T132013219616Z`: 10 jobs and 49 resumes. All 108 records (jobs, resumes and pairs) passed validation on the first try, so the correction step had nothing to fix. The copies below are in `docs/` because `visualizations/` is not committed; the run's full charts are archived in `visualizations/archive/pre-style-fix/20261014T132013219616Z/`. This run predates the writing-style rotation, so its writing-style breakdown repeats the fit-level one.
 
 ![Skills overlap by fit level](docs/skills_overlap_by_fit_level.png)
 
@@ -103,7 +103,7 @@ Every resume's skills overlap falls inside the band for its intended fit level. 
 
 ## Example: one pair end to end
 
-A "partial"-fit pair from the run above, `907401ce14ce`. It is abridged; full records are in `output/pairs_enriched_*.jsonl`.
+A "partial"-fit pair from the run above, `907401ce14ce`. It is abridged; full records are in `output/archive/pre-style-fix/pairs_enriched_20261014T132013219616Z.jsonl`.
 
 **Job** (`formal_corporate` template, Health care and social assistance): Registered Nurse at Sunnyvale Health Center, mid level, 4 years. Required skills are Clinical assessment, EHR documentation, Medication administration, Patient education, Interdisciplinary collaboration and Quality improvement participation.
 
@@ -147,7 +147,7 @@ The judge ran on all 49 valid pairs from run `20261014T132013219616Z` with `anth
 - **Every pair has at least one red flag.** 30 of 49 pairs have an unexplained employment gap, most often between graduation and the first role. Other recurring flags are responsibilities that exceed the job title and skill years longer than the roles that used them.
 - **Quality score barely tracks fit.** The mean is 0.56. By fit level it runs from 0.60 for "excellent" to 0.49 for "poor", and "complete mismatch" scores 0.57. The score rates the resume itself, while fit is covered by `fit_assessment` and the step 3 flags.
 
-These numbers are a snapshot of one 49-pair run, and `output/` is not committed.
+These numbers are a snapshot of one 49-pair run. `output/` is not committed; this run's verdicts are archived in `output/archive/pre-style-fix/judge_output.json`, so regenerate the chart with `python3 judge_chart.py output/archive/pre-style-fix/judge_output.json`.
 
 ## Review API
 
