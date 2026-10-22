@@ -7,11 +7,11 @@ from unittest.mock import patch
 
 from pydantic import ValidationError
 
-from pipeline import main, parse_arguments
-from schemas import Requirements, ResumeJobPair
-from step1_generation import generate_one
-from startup_checks import run_startup_checks
-from step2_validation import (
+from src.pipeline import main, parse_arguments
+from src.schemas import Requirements, ResumeJobPair
+from src.step1_generation import generate_one
+from src.startup_checks import run_startup_checks
+from src.step2_validation import (
     _category_for_error,
     detect_awkward_language,
     detect_hallucination,
@@ -430,13 +430,13 @@ class Step2ValidationTests(unittest.TestCase):
     def test_no_args_generates_then_validates_generated_paths(self):
         generated = {"jobs_path": "jobs.jsonl", "resumes_path": "resumes.jsonl", "pairs_path": "pairs.jsonl"}
         with (
-            patch("pipeline.run_startup_checks") as startup,
+            patch("src.pipeline.run_startup_checks") as startup,
             patch("sys.argv", ["pipeline.py"]),
-            patch("step1_generation.generate_job_descriptions", return_value=generated),
-            patch("step2_validation.validate_run", return_value={"failure_modes_path": "report.json"}) as validate,
-            patch("step2_correction.correct_run") as correct,
-            patch("step3_failure_analysis.analyze_latest_run"),
-            patch("step4_visualization.visualize_latest_run"),
+            patch("src.step1_generation.generate_job_descriptions", return_value=generated),
+            patch("src.step2_validation.validate_run", return_value={"failure_modes_path": "report.json"}) as validate,
+            patch("src.step2_correction.correct_run") as correct,
+            patch("src.step3_failure_analysis.analyze_latest_run"),
+            patch("src.step4_visualization.visualize_latest_run"),
         ):
             main()
         startup.assert_called_once_with("all", require_api_key=True)
@@ -446,9 +446,9 @@ class Step2ValidationTests(unittest.TestCase):
     def test_only_jobs_generates_then_validates_generated_jobs(self):
         generated = {"jobs_path": "jobs.jsonl", "resumes_path": None, "pairs_path": None}
         with (
-            patch("pipeline.run_startup_checks") as startup,
-            patch("step1_generation.generate_job_descriptions", return_value=generated) as generate,
-            patch("step2_validation.validate_run") as validate,
+            patch("src.pipeline.run_startup_checks") as startup,
+            patch("src.step1_generation.generate_job_descriptions", return_value=generated) as generate,
+            patch("src.step2_validation.validate_run") as validate,
         ):
             main(["--only-jobs"])
         startup.assert_called_once_with("all", require_api_key=True)
@@ -461,14 +461,14 @@ class Step2ValidationTests(unittest.TestCase):
 
     def test_step2_selector_is_forwarded_to_latest_validation(self):
         with (
-            patch("pipeline.run_startup_checks"),
-            patch("step2_validation.validate_latest_run") as validate,
+            patch("src.pipeline.run_startup_checks"),
+            patch("src.step2_validation.validate_latest_run") as validate,
         ):
             main(["step2", "--only-resumes"])
         validate.assert_called_once_with(only="resumes")
 
     def test_step2_startup_does_not_check_api_key(self):
-        with patch("startup_checks.ensure_openrouter_key") as ensure_key:
+        with patch("src.startup_checks.ensure_openrouter_key") as ensure_key:
             run_startup_checks("step2")
         ensure_key.assert_not_called()
 

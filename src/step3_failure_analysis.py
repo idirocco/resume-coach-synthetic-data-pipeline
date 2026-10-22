@@ -6,8 +6,8 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from config import CORE_SKILL_COUNT, OUTPUT_DIR
-from resume_metrics import (
+from src.config import CORE_SKILL_COUNT, OUTPUT_DIR
+from src.resume_metrics import (
     HALLUCINATION_REASONS,
     JOB_LEVEL_SENIORITY,
     SENIORITY_NAMES,
@@ -20,7 +20,7 @@ from resume_metrics import (
     resume_years,
     skill_key,
 )
-from schemas import fit_level_for_overlap
+from src.schemas import fit_level_for_overlap
 
 ENRICHED_PATTERN = re.compile(r"^pairs_enriched_(\d{8}T\d{6}\d*Z)\.jsonl$")
 STATS_PATTERN = re.compile(r"^failure_stats_(\d{8}T\d{6}\d*Z)\.json$")

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 
 # Total job descriptions for step 1. Templates and industries are cycled so both are used evenly.
 JOBS = 10
@@ -35,7 +35,7 @@ MAX_CONCURRENT_REQUESTS = 3
 # LLM judge: a different model family from MODEL, so the judge does not grade its own generator's output.
 JUDGE_MODEL = "anthropic/claude-haiku-5.5"
 JUDGE_TEMPERATURE = 0.0
-# Turns per pair in `pipeline.py judge`. The API makes one attempt without reasoning and gives up after
+# Turns per pair in `src.pipeline judge`. The API makes one attempt without reasoning and gives up after
 # JUDGE_API_TIMEOUT_SECONDS to stay inside its 10 s budget.
 JUDGE_MAX_ATTEMPTS = 2
 JUDGE_API_TIMEOUT_SECONDS = 9.0

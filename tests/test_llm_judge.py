@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-import config
-from api import app
-from llm_judge import JudgeFailed, JudgeUnavailable, judge_resume, judge_run, render_judge_prompt
+from src import config
+from src.api.api import app
+from src.llm_judge import JudgeFailed, JudgeUnavailable, judge_resume, judge_run, render_judge_prompt
 from test_api import review
 from test_step2_correction import ScriptedClient
 from test_step2_validation import make_job, make_resume
@@ -110,13 +110,13 @@ class JudgeRunTests(unittest.TestCase):
 
 class ReviewResumeJudgeTests(unittest.TestCase):
     def test_judge_is_off_by_default(self):
-        with patch("api.judge_resume") as judge:
+        with patch("src.api.api.judge_resume") as judge:
             body = review().json()
         judge.assert_not_called()
         self.assertIsNone(body["judge"])
 
     def test_judge_query_adds_verdict(self):
-        with patch("api._judge_client"), patch("api.judge_resume", return_value=verdict(trace_id="rs-1")) as judge:
+        with patch("src.api.api._judge_client"), patch("src.api.api.judge_resume", return_value=verdict(trace_id="rs-1")) as judge:
             response = TestClient(app).post(
                 "/review-resume?judge=1", json={"resume": make_resume(), "job": make_job()["job_description"]}
             )
@@ -126,13 +126,13 @@ class ReviewResumeJudgeTests(unittest.TestCase):
         self.assertEqual(judge.call_args.args[2]["title"], make_job()["job_description"]["title"])
 
     def test_judge_without_key_is_503(self):
-        with patch("api._judge_client", side_effect=JudgeUnavailable("OPENROUTER_API_KEY is not set")):
+        with patch("src.api.api._judge_client", side_effect=JudgeUnavailable("OPENROUTER_API_KEY is not set")):
             response = TestClient(app).post("/review-resume?judge=1", json={"resume": make_resume()})
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["error"], "judge_unavailable")
 
     def test_judge_failure_is_502(self):
-        with patch("api._judge_client"), patch("api.judge_resume", side_effect=JudgeFailed("timeout")):
+        with patch("src.api.api._judge_client"), patch("src.api.api.judge_resume", side_effect=JudgeFailed("timeout")):
             response = TestClient(app).post("/review-resume?judge=true", json={"resume": make_resume()})
         self.assertEqual(response.status_code, 502)
         self.assertEqual(response.json()["error"], "judge_failed")
@@ -142,14 +142,14 @@ class ReviewResumeJudgeTests(unittest.TestCase):
             time.sleep(0.5)
             return verdict()
 
-        with patch("api._judge_client"), patch("api.judge_resume", side_effect=slow), patch(
-            "config.JUDGE_API_TIMEOUT_SECONDS", 0.05
+        with patch("src.api.api._judge_client"), patch("src.api.api.judge_resume", side_effect=slow), patch(
+            "src.config.JUDGE_API_TIMEOUT_SECONDS", 0.05
         ):
             response = TestClient(app).post("/review-resume?judge=1", json={"resume": make_resume()})
         self.assertEqual(response.status_code, 504)
         self.assertEqual(response.json()["error"], "judge_timeout")
 
     def test_api_judge_skips_reasoning(self):
-        with patch("api._judge_client"), patch("api.judge_resume", return_value=verdict()) as judge:
+        with patch("src.api.api._judge_client"), patch("src.api.api.judge_resume", return_value=verdict()) as judge:
             TestClient(app).post("/review-resume?judge=1", json={"resume": make_resume()})
         self.assertFalse(judge.call_args.kwargs["reasoning"])

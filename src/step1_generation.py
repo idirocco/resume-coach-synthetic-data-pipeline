@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import ValidationError
 
-from config import (
+from src.config import (
     CORE_SKILL_COUNT,
     CORE_SKILL_FIT_LEVELS,
     INDUSTRIES,
@@ -30,9 +30,9 @@ from config import (
     TEMPERATURE,
 )
 
-from correction import build_correction_prompt, error_context
-from schemas import parse_resume, validation_messages
-from step2_validation import _validation_errors
+from src.correction import build_correction_prompt, error_context
+from src.schemas import parse_resume, validation_messages
+from src.step2_validation import _validation_errors
 
 FIT_LEVELS = ("excellent", "good", "partial", "poor", "complete_mismatch")
 EXPERIENCE_LEVELS = ("intern", "entry", "mid", "senior", "lead", "executive")

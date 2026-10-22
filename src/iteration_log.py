@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from config import OUTPUT_DIR, ROOT
+from src.config import OUTPUT_DIR, ROOT
 
 
 def _read_report(path):

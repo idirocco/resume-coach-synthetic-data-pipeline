@@ -1,4 +1,4 @@
-"""Step 5: REST API over the pipeline's analysis functions. Run with: uvicorn api:app --reload"""
+"""Step 5: REST API over the pipeline's analysis functions. Run with: uvicorn src.api.api:app --reload"""
 
 import json
 import logging
@@ -12,12 +12,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-import config
-from api_models import ReviewRequest, ReviewResponse
-from llm_judge import JudgeFailed, JudgeUnavailable, judge_resume, make_judge_client
-from resume_metrics import hallucination_reasons, awkward_language_reasons
-from schemas import JobDescription, Resume, validation_messages
-from step3_failure_analysis import (
+from src import config
+from src.api.api_models import ReviewRequest, ReviewResponse
+from src.llm_judge import JudgeFailed, JudgeUnavailable, judge_resume, make_judge_client
+from src.resume_metrics import hallucination_reasons, awkward_language_reasons
+from src.schemas import JobDescription, Resume, validation_messages
+from src.step3_failure_analysis import (
     EXPERIENCE_RATIO_THRESHOLD,
     FLAGS,
     SENIORITY_GAP_THRESHOLD,
@@ -83,7 +83,7 @@ def failure_rates(
     if latest is None:
         return JSONResponse(
             status_code=404,
-            content={"error": "no_failure_stats", "hint": "run python3 pipeline.py step3"},
+            content={"error": "no_failure_stats", "hint": "run python3 -m src.pipeline step3"},
         )
     _, path = latest
     try:

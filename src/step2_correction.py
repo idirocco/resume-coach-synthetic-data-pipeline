@@ -10,10 +10,10 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from config import MAX_ATTEMPTS, MAX_CONCURRENT_REQUESTS, MODEL, OUTPUT_DIR, ROOT, TEMPERATURE
-from correction import build_correction_prompt, error_context
-from schemas import parse_job_description, parse_resume
-from step2_validation import _category_for_error, _validation_errors, field_pattern, validate_run
+from src.config import MAX_ATTEMPTS, MAX_CONCURRENT_REQUESTS, MODEL, OUTPUT_DIR, ROOT, TEMPERATURE
+from src.correction import build_correction_prompt, error_context
+from src.schemas import parse_job_description, parse_resume
+from src.step2_validation import _category_for_error, _validation_errors, field_pattern, validate_run
 
 SUCCESS_RATE_TARGET_PERCENT = 50
 # Errors about ids and references are written by the pipeline, not the LLM; rewriting text cannot fix them.
@@ -113,7 +113,7 @@ def _protect_resume(original):
 
 def correct_record(client, original, errors, validate, protect, context=None, extra_instructions=None):
     """Up to MAX_ATTEMPTS correction turns. Returns (corrected payload or None, errors after each attempt)."""
-    from step1_generation import parse_json_object
+    from src.step1_generation import parse_json_object
 
     prompt = build_correction_prompt(error_context(errors, original, context), original, extra_instructions)
     messages = [{"role": "user", "content": prompt}]

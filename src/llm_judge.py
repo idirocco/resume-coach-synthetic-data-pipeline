@@ -1,6 +1,6 @@
 """LLM-as-judge: subtle resume quality issues the step 3 rules miss.
 
-`judge_resume` reviews one resume (optionally against a job) and is shared by `pipeline.py judge` and
+`judge_resume` reviews one resume (optionally against a job) and is shared by `src.pipeline judge` and
 `POST /review-resume?judge=1`. `judge_run` judges every valid pair of a pairs_enriched file and writes
 output/judge_output.json.
 """
@@ -14,9 +14,9 @@ from pathlib import Path
 
 from pydantic import Field, ValidationError
 
-import config
-from schemas import NonBlank, StrictModel, validation_messages
-from step3_failure_analysis import discover_latest_enriched, resume_checks
+from src import config
+from src.schemas import NonBlank, StrictModel, validation_messages
+from src.step3_failure_analysis import discover_latest_enriched, resume_checks
 
 JUDGE_OUTPUT_FILE = "judge_output.json"
 
@@ -84,7 +84,7 @@ def judge_resume(client, resume, job=None, trace_id=None, attempts=None, templat
 
     reasoning=False skips the model's thinking tokens: about 2x faster, used by the API to stay under 10 s.
     """
-    from step1_generation import parse_json_object
+    from src.step1_generation import parse_json_object
 
     trace_id = trace_id or (resume.get("metadata") or {}).get("trace_id") or "review"
     template_text = template_text or config.JUDGE_PROMPT_PATH.read_text(encoding="utf-8")

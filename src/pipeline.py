@@ -4,8 +4,8 @@
 
 import argparse
 
-from iteration_log import append_iteration_log
-from startup_checks import run_startup_checks
+from src.iteration_log import append_iteration_log
+from src.startup_checks import run_startup_checks
 
 
 def parse_arguments(argv=None):
@@ -49,45 +49,45 @@ def main(argv=None):
     run_startup_checks(checks_step, require_api_key=only in {None, "jobs"})
 
     if step == "judge":
-        from llm_judge import judge_latest_run
+        from src.llm_judge import judge_latest_run
 
         judge_latest_run(limit=args.limit)
         return
 
     if step == "step4":
-        from step4_visualization import visualize_latest_run
+        from src.step4_visualization import visualize_latest_run
 
         visualize_latest_run()
         return
 
     if step == "step3":
-        from step3_failure_analysis import analyze_latest_run
+        from src.step3_failure_analysis import analyze_latest_run
 
         analyze_latest_run()
         return
 
     if step == "correct":
-        from step2_correction import correct_latest_run
+        from src.step2_correction import correct_latest_run
 
         correct_latest_run()
         return
 
     if step == "step2":
-        from step2_validation import validate_latest_run
+        from src.step2_validation import validate_latest_run
 
         result = validate_latest_run(only=only)
         if args.log:
             append_iteration_log(result["failure_modes_path"])
         return
 
-    from step1_generation import generate_job_descriptions
+    from src.step1_generation import generate_job_descriptions
 
     if only is None:
         generated_run = generate_job_descriptions()
     else:
         generated_run = generate_job_descriptions(only=only)
     if run_complete_pipeline or run_jobs_validation:
-        from step2_validation import validate_run
+        from src.step2_validation import validate_run
 
         validation_paths = (
             generated_run["jobs_path"],
@@ -101,13 +101,13 @@ def main(argv=None):
         if args.log:
             append_iteration_log(result["failure_modes_path"])
         if run_complete_pipeline:
-            from step2_correction import correct_run
+            from src.step2_correction import correct_run
 
             correct_run(result["failure_modes_path"])
-            from step3_failure_analysis import analyze_latest_run
+            from src.step3_failure_analysis import analyze_latest_run
 
             analyze_latest_run()
-            from step4_visualization import visualize_latest_run
+            from src.step4_visualization import visualize_latest_run
 
             visualize_latest_run()
 

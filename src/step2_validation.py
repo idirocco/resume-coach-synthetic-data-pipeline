@@ -6,9 +6,9 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from config import OUTPUT_DIR
-from resume_metrics import awkward_language_reasons, hallucination_reasons, jaccard
-from schemas import ResumeJobPair, fit_level_for_overlap, parse_job_description, parse_resume
+from src.config import OUTPUT_DIR
+from src.resume_metrics import awkward_language_reasons, hallucination_reasons, jaccard
+from src.schemas import ResumeJobPair, fit_level_for_overlap, parse_job_description, parse_resume
 
 SOURCE_FILE_PATTERN = re.compile(r"^(jobs|resumes|pairs)_(\d{8}T\d{6}Z)\.jsonl$")
 # Schema failures reject a record. Quality warnings are recorded on otherwise valid resumes

@@ -1,6 +1,6 @@
 import unittest
 
-from resume_metrics import (
+from src.resume_metrics import (
     awkward_language_reasons,
     awkward_language_stats,
     hallucination_reasons,

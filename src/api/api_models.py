@@ -1,4 +1,4 @@
-"""Request/response models for api.py.
+"""Request/response models for src/api/api.py.
 
 Field rules come from schemas.py (contact info, education, experience, skills, company). What is relaxed for
 real-world input: metadata is optional, and skills/experience/responsibility counts have no pipeline minimums.
@@ -6,8 +6,8 @@ real-world input: metadata is optional, and skills/experience/responsibility cou
 
 from pydantic import BaseModel, Field, model_validator
 
-from llm_judge import JudgeVerdict
-from schemas import (
+from src.llm_judge import JudgeVerdict
+from src.schemas import (
     Company,
     ContactInfo,
     Education,

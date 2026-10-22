@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from api import app
-from step3_failure_analysis import FLAGS, label_pair
+from src.api.api import app
+from src.step3_failure_analysis import FLAGS, label_pair
 from test_step2_validation import REQUIRED_SKILLS, make_job, make_resume
 from test_step3_failure_analysis import enriched_row
 
@@ -35,13 +35,13 @@ class HealthTests(unittest.TestCase):
     def test_health_reports_latest_stats(self):
         with tempfile.TemporaryDirectory() as directory:
             Path(directory, "failure_stats_20260930T120000Z.json").write_text("{}")
-            with patch("config.OUTPUT_DIR", Path(directory)):
+            with patch("src.config.OUTPUT_DIR", Path(directory)):
                 body = client.get("/health").json()
         self.assertEqual(body["status"], "ok")
         self.assertEqual(body["latest_failure_stats"], "20260930T120000Z")
 
     def test_health_without_stats(self):
-        with tempfile.TemporaryDirectory() as directory, patch("config.OUTPUT_DIR", Path(directory)):
+        with tempfile.TemporaryDirectory() as directory, patch("src.config.OUTPUT_DIR", Path(directory)):
             response = client.get("/health")
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.json()["latest_failure_stats"])
@@ -173,7 +173,7 @@ class ReviewResumeTests(unittest.TestCase):
         self.assertEqual(response.json()["detail"][0]["type"], "json_invalid")
 
     def test_unexpected_error_returns_500_json(self):
-        with patch("api.resume_checks", side_effect=RuntimeError("boom")), self.assertLogs("api", level="ERROR"):
+        with patch("src.api.api.resume_checks", side_effect=RuntimeError("boom")), self.assertLogs("src.api.api", level="ERROR"):
             response = review()
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json(), {"error": "internal_error"})
@@ -192,7 +192,7 @@ class FailureRatesTests(unittest.TestCase):
     def setUp(self):
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.output_dir = Path(self.temporary_directory.name)
-        self.patcher = patch("config.OUTPUT_DIR", self.output_dir)
+        self.patcher = patch("src.config.OUTPUT_DIR", self.output_dir)
         self.patcher.start()
 
     def tearDown(self):
@@ -242,7 +242,7 @@ class FailureRatesTests(unittest.TestCase):
 
     def test_corrupt_stats_returns_500(self):
         (self.output_dir / "failure_stats_20260930T120000Z.json").write_text("{not json")
-        with self.assertLogs("api", level="ERROR"):
+        with self.assertLogs("src.api.api", level="ERROR"):
             response = client.get("/analysis/failure-rates")
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json()["error"], "invalid_failure_stats")

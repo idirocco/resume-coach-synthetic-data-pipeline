@@ -1,7 +1,7 @@
 import importlib.util
 import os
 
-from config import ROOT, ensure_output_dir
+from src.config import ROOT, ensure_output_dir
 
 REQUIRED_PACKAGES = ["openai", "dotenv", "pydantic"]
 

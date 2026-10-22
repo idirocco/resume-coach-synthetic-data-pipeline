@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from correction import build_correction_prompt, error_context
-from step2_correction import correct_run
-from step2_validation import validate_run
+from src.correction import build_correction_prompt, error_context
+from src.step2_correction import correct_run
+from src.step2_validation import validate_run
 from test_step2_validation import make_job, make_pair, make_resume
 
 

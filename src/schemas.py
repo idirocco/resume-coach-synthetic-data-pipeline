@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError, ValidationInfo, model_validator
 from pydantic_core import PydanticCustomError
 
-from resume_metrics import skill_key
+from src.resume_metrics import skill_key
 
 CompanySize = Literal["1-10", "11-50", "51-200", "201-1000", "1001-5000", "5001+"]
 ExperienceLevel = Literal["intern", "entry", "mid", "senior", "lead", "executive"]

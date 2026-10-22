@@ -1,6 +1,6 @@
 """Bar chart of the LLM judge summary in output/judge_output.json, for the README.
 
-python3 judge_chart.py [judge_output.json] [out.png]   # default: output/judge_output.json -> docs/judge_summary.png
+python3 -m src.judge_chart [judge_output.json] [out.png]   # default: output/judge_output.json -> docs/judge_summary.png
 """
 
 import json
@@ -13,8 +13,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
-from config import OUTPUT_DIR, ROOT
-from step4_visualization import FIT_LEVELS, INK_SECONDARY, MUTED, ORDINAL_BLUES, SERIES, SURFACE, _save, _style, _style_axes, _title
+from src.config import OUTPUT_DIR, ROOT
+from src.step4_visualization import FIT_LEVELS, INK_SECONDARY, MUTED, ORDINAL_BLUES, SERIES, SURFACE, _save, _style, _style_axes, _title
 
 JUDGE_COLOR, RULES_COLOR = SERIES[0], SERIES[1]
 CHECKS = (
