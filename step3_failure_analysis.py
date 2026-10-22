@@ -33,6 +33,8 @@ FLAGS = (
     "awkward_language_flag",
 )
 GROUP_FIELDS = ("fit_level", "job_template", "resume_writing_style", "is_niche_role", "resume_seniority")
+# (field, determined_by): a field whose groups would only repeat another field's groups.
+CONFOUND_CHECKS = (("resume_writing_style", "fit_level"),)
 # Below "partial" in fit_level_for_overlap.
 SKILLS_GAP_THRESHOLD = 0.4
 EXPERIENCE_RATIO_THRESHOLD = 0.5
@@ -208,6 +210,25 @@ def _phi(xs, ys):
     return round(covariance / math.sqrt(var_x * var_y), 4)
 
 
+def is_determined_by(values, by_values):
+    """True when each value maps to exactly one by-value and the by-values vary.
+
+    Then grouping by `values` only relabels the groups of `by_values`.
+    """
+    mapping = defaultdict(set)
+    for value, by_value in zip(values, by_values):
+        mapping[str(value)].add(str(by_value))
+    return len(set().union(*mapping.values())) > 1 and all(len(by) == 1 for by in mapping.values())
+
+
+def confounded_groups(labels):
+    return [
+        {"field": field, "determined_by": by}
+        for field, by in CONFOUND_CHECKS
+        if is_determined_by([label[field] for label in labels], [label[by] for label in labels])
+    ]
+
+
 def spot_check(rows, labels, count=SPOT_CHECK_COUNT):
     """Show the sets behind Jaccard for a sample of pairs, and whether step 2's value agrees."""
     checks = []
@@ -255,6 +276,7 @@ def failure_stats(labels, skipped, rows=None):
         "overall_failure_rates": overall,
         "any_failure_rate": _rate([label["any_failure"] for label in labels]),
         "by_group": by_group,
+        "confounded_groups": confounded_groups(labels),
         "correlation": correlation,
         "constant_flags": [flag for flag in FLAGS if len(set(columns[flag])) <= 1],
         "distributions": {
@@ -306,6 +328,8 @@ def analyze_run(enriched_path, output_dir=OUTPUT_DIR):
     for flag in FLAGS:
         rate = stats["overall_failure_rates"][flag]
         print(f"  {flag}: {'n/a' if rate is None else f'{rate:.0%}'}")
+    for confound in stats["confounded_groups"]:
+        print(f"  warning: {confound['field']} is fully determined by {confound['determined_by']} in this run")
     print(f"Wrote failure labels to {labels_path}")
     print(f"Wrote failure statistics to {stats_path}")
     return {"labels_path": labels_path, "stats_path": stats_path, "stats": stats}

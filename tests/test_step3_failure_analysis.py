@@ -126,6 +126,33 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(stats["overall_failure_rates"]["skills_gap_flag"], 0.5)
 
 
+class ConfoundTests(unittest.TestCase):
+    FITS = ("excellent", "good", "partial", "poor", "complete_mismatch")
+    STYLES = ("concise", "metrics-driven", "technical", "narrative", "understated")
+
+    def labels(self, style_for):
+        base = label_pair(enriched_row())
+        return [
+            {**base, "fit_level": fit, "resume_writing_style": style_for(job, slot)}
+            for job in range(5)
+            for slot, fit in enumerate(self.FITS)
+        ]
+
+    def test_style_fixed_to_fit_is_reported(self):
+        stats = failure_stats(self.labels(lambda job, slot: self.STYLES[slot]), {})
+        self.assertEqual(
+            stats["confounded_groups"], [{"field": "resume_writing_style", "determined_by": "fit_level"}]
+        )
+
+    def test_rotated_styles_are_not_confounded(self):
+        stats = failure_stats(self.labels(lambda job, slot: self.STYLES[(job + slot) % 5]), {})
+        self.assertEqual(stats["confounded_groups"], [])
+
+    def test_a_single_fit_level_is_not_a_confound(self):
+        labels = [label_pair(enriched_row()), label_pair(enriched_row())]
+        self.assertEqual(failure_stats(labels, {})["confounded_groups"], [])
+
+
 class AnalyzeRunTests(unittest.TestCase):
     def setUp(self):
         self.temporary_directory = tempfile.TemporaryDirectory()

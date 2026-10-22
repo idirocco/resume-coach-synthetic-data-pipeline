@@ -18,7 +18,7 @@ from matplotlib.patches import Patch, Rectangle
 from config import FAILURE_TARGETS, OUTPUT_DIR, PROMPT_TEMPLATES, RESUME_WRITING_STYLES, VISUALIZATIONS_DIR
 from resume_metrics import HALLUCINATION_REASONS, SENIORITY_NAMES
 from step2_validation import ERROR_CATEGORIES
-from step3_failure_analysis import FLAGS
+from step3_failure_analysis import FLAGS, is_determined_by
 
 LABELS_PATTERN = re.compile(r"^failure_labels_(\d{8}T\d{6}\d*Z)\.jsonl$")
 FIT_LEVELS = ("excellent", "good", "partial", "poor", "complete_mismatch")
@@ -286,11 +286,19 @@ def chart_by_template(df, path):
 
 
 def chart_by_writing_style(df, path):
+    title = "Which resume writing styles cause the most failures?"
+    if is_determined_by(df["resume_writing_style"], df["fit_level"]):
+        return placeholder(
+            path,
+            title,
+            "Writing style is fully determined by fit level in this run, so this chart would repeat the fit-level chart.\n"
+            "Regenerate data after the style rotation fix.",
+        )
     order = [name for name in RESUME_WRITING_STYLES if (df["resume_writing_style"] == name).any()]
     return grouped_bars(
         path,
         _group_rates(df, "resume_writing_style", order),
-        "Which resume writing styles cause the most failures?",
+        title,
         f"Share of pairs with each failure, by resume writing style ({len(df)} pairs)",
         "Resume writing style",
         note="Reference lines are the strong-fit targets; each style mixes all fit levels.",

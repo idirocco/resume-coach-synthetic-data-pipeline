@@ -146,6 +146,30 @@ class VisualizationTests(unittest.TestCase):
         schema = load_schema_report(TIMESTAMP, report, self.output_dir)
         self.assertEqual(schema["summary"]["success_rate_percent"], 50.0)
 
+    def writing_style_placeholder_calls(self, style_for):
+        import step4_visualization
+
+        fits = ("excellent", "good", "partial", "poor", "complete_mismatch")
+        styles = ("concise", "metrics-driven", "technical", "narrative", "understated")
+        rows = []
+        for job in range(5):
+            for slot, fit in enumerate(fits):
+                row = label_row(len(rows), fit_level=fit)
+                row["resume_writing_style"] = styles[style_for(job, slot)]
+                rows.append(row)
+        with patch("step4_visualization.placeholder", wraps=step4_visualization.placeholder) as placeholder:
+            result = visualize_run(self.write_labels(rows), self.output_dir, self.viz_dir)
+        self.assert_all_charts(result)
+        return [call for call in placeholder.call_args_list if call.args[0].name == "3b_failure_rates_by_writing_style.png"]
+
+    def test_confounded_writing_style_gets_a_placeholder(self):
+        calls = self.writing_style_placeholder_calls(lambda job, slot: slot)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("fully determined by fit level", calls[0].args[2])
+
+    def test_rotated_writing_style_gets_a_real_chart(self):
+        self.assertEqual(self.writing_style_placeholder_calls(lambda job, slot: (job + slot) % 5), [])
+
     def test_latest_labels_are_discovered_and_empty_input_is_rejected(self):
         path = self.write_labels([label_row(0)])
         self.assertEqual(discover_latest_labels(self.output_dir), (TIMESTAMP, path))
