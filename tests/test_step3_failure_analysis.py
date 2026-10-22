@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from pipeline import main
-from step2_validation import validate_run
-from step3_failure_analysis import FLAGS, analyze_run, failure_stats, label_pair
+from src.pipeline import main
+from src.step2_validation import validate_run
+from src.step3_failure_analysis import FLAGS, analyze_run, failure_stats, label_pair
 from test_step2_validation import REQUIRED_SKILLS, make_job, make_pair, make_resume
 
 
@@ -193,7 +193,7 @@ class AnalyzeRunTests(unittest.TestCase):
         self.assertEqual(result["stats"]["validation_timestamp"], "20260930T120000000000Z")
 
     def test_step3_cli_runs_latest_analysis(self):
-        with patch("pipeline.run_startup_checks"), patch("step3_failure_analysis.analyze_latest_run") as analyze:
+        with patch("src.pipeline.run_startup_checks"), patch("src.step3_failure_analysis.analyze_latest_run") as analyze:
             main(["step3"])
         analyze.assert_called_once_with()
 

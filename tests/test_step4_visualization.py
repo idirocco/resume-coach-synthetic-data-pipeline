@@ -4,9 +4,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from pipeline import main
-from step3_failure_analysis import FLAGS
-from step4_visualization import discover_latest_labels, load_labels, visualize_run
+from src.pipeline import main
+from src.step3_failure_analysis import FLAGS
+from src.step4_visualization import discover_latest_labels, load_labels, visualize_run
 
 TIMESTAMP = "20261001T120000000000Z"
 EXPECTED_CHARTS = {
@@ -140,14 +140,14 @@ class VisualizationTests(unittest.TestCase):
                 }
             )
         )
-        from step4_visualization import load_correction_report, load_schema_report
+        from src.step4_visualization import load_correction_report, load_schema_report
 
         report = load_correction_report(TIMESTAMP, self.output_dir)
         schema = load_schema_report(TIMESTAMP, report, self.output_dir)
         self.assertEqual(schema["summary"]["success_rate_percent"], 50.0)
 
     def writing_style_placeholder_calls(self, style_for):
-        import step4_visualization
+        from src import step4_visualization
 
         fits = ("excellent", "good", "partial", "poor", "complete_mismatch")
         styles = ("concise", "metrics-driven", "technical", "narrative", "understated")
@@ -157,7 +157,7 @@ class VisualizationTests(unittest.TestCase):
                 row = label_row(len(rows), fit_level=fit)
                 row["resume_writing_style"] = styles[style_for(job, slot)]
                 rows.append(row)
-        with patch("step4_visualization.placeholder", wraps=step4_visualization.placeholder) as placeholder:
+        with patch("src.step4_visualization.placeholder", wraps=step4_visualization.placeholder) as placeholder:
             result = visualize_run(self.write_labels(rows), self.output_dir, self.viz_dir)
         self.assert_all_charts(result)
         return [call for call in placeholder.call_args_list if call.args[0].name == "3b_failure_rates_by_writing_style.png"]
@@ -180,7 +180,7 @@ class VisualizationTests(unittest.TestCase):
             discover_latest_labels(self.root)
 
     def test_step4_cli_runs_latest_visualization(self):
-        with patch("pipeline.run_startup_checks"), patch("step4_visualization.visualize_latest_run") as visualize:
+        with patch("src.pipeline.run_startup_checks"), patch("src.step4_visualization.visualize_latest_run") as visualize:
             main(["step4"])
         visualize.assert_called_once_with()
 
