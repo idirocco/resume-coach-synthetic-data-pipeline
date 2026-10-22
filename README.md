@@ -45,7 +45,7 @@ Jobs-only and resume-only require `OPENROUTER_API_KEY` in the environment or `.e
 
 ## Generation
 
-Generation uses the OpenRouter model `openai/gpt-oss-20b` (`MODEL` in `config.py`). Six job-description templates (`prompts/job_description/`) are cycled across ten BLS industries. Each job gets `RESUMES_PER_JOB` resumes at controlled fit levels (`excellent`, `good`, `partial`, `poor`, `complete_mismatch`) and in five writing styles. It writes `jobs_<UTC timestamp>.jsonl`, `resumes_<UTC timestamp>.jsonl`, and `pairs_<UTC timestamp>.jsonl` under `output/`. Pair rows reference job and resume trace IDs. Step1 decodes model replies as JSON objects but does not perform Pydantic schema validation.
+Generation uses the OpenRouter model `openai/gpt-oss-20b` (`MODEL` in `config.py`). Six job-description templates (`prompts/job_description/`) are cycled across ten BLS industries. Each job gets `RESUMES_PER_JOB` resumes at controlled fit levels (`excellent`, `good`, `partial`, `poor`, `complete_mismatch`) and in five writing styles. It writes `jobs_<UTC timestamp>.jsonl`, `resumes_<UTC timestamp>.jsonl`, and `pairs_<UTC timestamp>.jsonl` under `output/`. Pair rows reference job and resume trace IDs. Job replies are only decoded as JSON; their schema checks happen in step 2. Resume replies are also validated against the resume schema, the job's required skills and the fit level. A failed reply is sent back to the model with its error, for up to `MAX_ATTEMPTS` turns.
 
 ## Validation
 
@@ -88,6 +88,44 @@ It writes `failure_labels_<timestamp>.jsonl` (flags plus the numbers behind them
 ## Charts (step 4)
 
 Step 4 writes 10 PNGs and `failure_rates_table.csv` to `visualizations/<timestamp>/`. The charts cover flag correlation, failure rates by fit level, job template, writing style and niche vs standard roles, the schema-error heatmap, hallucinations by seniority, skills overlap by fit level, and correction success and attempts. Target lines come from `FAILURE_TARGETS` in `config.py`. A chart with no data is written as a placeholder PNG that says why.
+
+### Latest run
+
+Run `20261014T132013219616Z`: 10 jobs and 49 resumes. All 108 records (jobs, resumes and pairs) passed validation on the first try, so the correction step had nothing to fix. The copies below are in `docs/` because `visualizations/` is not committed.
+
+![Skills overlap by fit level](docs/skills_overlap_by_fit_level.png)
+
+Every resume's skills overlap falls inside the band for its intended fit level. "Excellent" resumes sit at 0.9-1.0, "partial" ones at 0.4-0.57 and "complete mismatch" ones at 0. The generator hits its target fit levels.
+
+![Failure rates by fit level](docs/failure_rates_by_fit_level.png)
+
+"Excellent" and "good" pairs trigger no flags, well under the 10% targets. Weaker fits fail as intended: every "partial" pair misses a core skill, and every "poor" and "complete mismatch" pair also has a skills gap. The rules flagged no hallucinations or awkward language. The LLM judge, covered below, disagrees.
+
+## Example: one pair end to end
+
+A "partial"-fit pair from the run above, `907401ce14ce`. It is abridged; full records are in `output/pairs_enriched_*.jsonl`.
+
+**Job** (`formal_corporate` template, Health care and social assistance): Registered Nurse at Sunnyvale Health Center, mid level, 4 years. Required skills are Clinical assessment, EHR documentation, Medication administration, Patient education, Interdisciplinary collaboration and Quality improvement participation.
+
+**Resume** (`partial` fit, `technical` style):
+
+```json
+"experience": [
+  {"company": "Horizon Care Services", "title": "Patient Care Associate", "start_date": "2021-01-01", "end_date": "2023-12-31",
+   "responsibilities": ["Administered medications per schedule for 30+ patients daily", "..."],
+   "achievements": ["Reduced medication administration errors by 15% within first 6 months", "..."]},
+  {"company": "Sunnyvale Health Center", "title": "Registered Nurse Trainee", "start_date": "2024-01-01", "end_date": null, "...": "..."}
+],
+"skills": [
+  {"name": "Medication administration", "proficiency_level": "Expert", "years": 3.0},
+  {"name": "Patient education", "proficiency_level": "Expert", "years": 3.0},
+  {"name": "Interdisciplinary collaboration", "proficiency_level": "Intermediate", "years": 2.0}
+]
+```
+
+**Step 3 labels** (`failure_labels_*.jsonl`): skills Jaccard 0.5 (inside the partial band), 5.78 resume years vs 4 required, and seniority one level below the job. One flag fires, `missing_core_skills_flag`, because Clinical assessment and EHR documentation are missing.
+
+**LLM judge** (`judge_output.json`): quality score 0.52, `has_hallucinations: true`. The judge says the Patient Care Associate role "lists daily medication administration for 30+ patients and leading interdisciplinary meetings, which do not fit a non-licensed associate title". It also notes "no RN licensure, although the job requires it". One of its recommendations: *"Add a bullet to the Sunnyvale Health Center RN Trainee entry describing EHR documentation of clinical interventions."* The rules confirm the intended fit; the judge finds the credibility problems.
 
 ## LLM judge
 

@@ -19,6 +19,7 @@ python3 pipeline.py correct                  # LLM correction of the latest step
 python3 pipeline.py step3                    # failure labels from the latest pairs_enriched file
 python3 pipeline.py step4                    # charts from the latest failure labels
 python3 pipeline.py judge [--limit N]        # LLM judge over the latest pairs_enriched file -> output/judge_output.json
+python3 judge_chart.py                       # bar chart of output/judge_output.json -> docs/judge_summary.png
 python3 -m pytest                            # tests (no LLM calls)
 uvicorn api:app --reload                     # review API on :8000, docs at /docs
 ```
@@ -29,17 +30,17 @@ Steps 2-4 and `correct` read the newest files in `output/`; only step 1, `correc
 
 - Requires `OPENROUTER_API_KEY` set in the environment or a `.env` file (see `.env.example`). `startup_checks.py` fails fast with actionable messages if dependencies or the API key are missing.
 - Generation parameters (batch size `JOBS`, model, temperature, retry count, the industry list, and which prompt templates cycle through) live in `config.py` — edit there rather than passing flags.
-- Output is written to `output/jobs_<UTC timestamp>.jsonl`, one JSON line per generated job.
+- Step 1 writes `output/jobs_<UTC timestamp>.jsonl`, `resumes_<ts>.jsonl` and `pairs_<ts>.jsonl`, one JSON line per record. `output/` and `visualizations/` are gitignored; the README's charts are curated copies in `docs/`.
 
 ## Architecture
 
 The pipeline is a straight-line script, not a framework — each module has one job:
 
-- **`config.py`** — all tunables (batch count `JOBS`, generation model `meta-llama/llama-3.1-8b-instruct`, temperature, `MAX_ATTEMPTS`, the six `PROMPT_TEMPLATES` names, the ten BLS-derived `INDUSTRIES`). `plan_batch` (in `step1_generation.py`) cycles templates and industries independently by index so both are covered evenly across `JOBS` items regardless of how they divide.
+- **`config.py`** — all tunables (batch count `JOBS`, generation model `MODEL` = `openai/gpt-oss-20b`, judge model `JUDGE_MODEL`, temperature, `MAX_ATTEMPTS`, the six `PROMPT_TEMPLATES` names, the ten BLS-derived `INDUSTRIES`). `plan_batch` (in `step1_generation.py`) cycles templates and industries independently by index so both are covered evenly across `JOBS` items regardless of how they divide.
 - **`startup_checks.py`** — verifies output dir, required packages, and `OPENROUTER_API_KEY` before any generation work starts.
 - **`prompts/job_description/*.txt`** — one prompt template per synthetic scenario (`formal_corporate`, `casual_startup`, `technical_detail`, `achievement_metrics`, `career_changer`, `niche_specialist`). Templates use `[INDUSTRY]`, `[TRACE_ID]`, `[GENERATED_AT]`, `[NOTES]` placeholders filled by `render_prompt`; any leftover `[UPPER_CASE]` placeholder after substitution raises an error, so a new template must use exactly these tokens or `render_prompt` needs updating too.
 - **`schemas.py`** — the Pydantic contract for a `JobDescription` (company/requirements/title/description/responsibilities/metadata), plus **template-specific validation rules**. This is the important cross-cutting piece: `TEMPLATE_CONSTRAINTS` maps each template name to a `TemplateConstraints` (skill counts, sentence counts, allowed company sizes/experience levels, whether the role must be niche). `JobDescription.apply_rules` runs both universal checks (experience-years-matches-level band, no duplicate/overlapping skills, industry/trace_id/generated_at echoed back correctly) and the template-specific ones from this map. **A prompt template and its `TemplateConstraints` entry must stay in sync** — the LLM output is only as good as the prompt's instructions, but it's the schema that actually enforces/rejects it.
-- **`step1_generation.py`** — orchestrates one run: loads templates, builds the batch plan, calls OpenRouter (`openai` SDK pointed at `https://openrouter.ai/api/v1`, `response_format={"type": "json_object"}`) per item, parses/validates the JSON response against `schemas.py`, and appends successes to the JSONL output as it goes (not batched at the end). On validation failure, `generate_one` doesn't just retry blind — it appends the bad response plus the specific Pydantic error message to the conversation and asks the model to correct it, up to `MAX_ATTEMPTS` turns, before giving up and skipping the item. This is a lightweight version of the "Correction" step described in `SPEC.md`, implemented inline rather than as a separate pass.
+- **`step1_generation.py`** — orchestrates one run: loads templates, builds the batch plan, calls OpenRouter (`openai` SDK pointed at `https://openrouter.ai/api/v1`, `response_format={"type": "json_object"}`) per item, and appends successes to the JSONL output as it goes (not batched at the end). Jobs (`generate_one`) are only parsed as JSON; their schema checks happen first in step 2. Resumes are validated with `parse_resume` against the job's required skills and fit level. On a failure, generation doesn't retry blind: it appends the bad response plus the error (JSON decode or Pydantic) to the conversation via `build_correction_prompt` and asks the model to fix it, up to `MAX_ATTEMPTS` turns, before skipping the item.
 - **`pipeline.py`** — thin entrypoint: runs startup checks, then dispatches to the requested step.
 
 ### Steps 2-4 (analysis)
